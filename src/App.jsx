@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
+import { fazerLogin, observarUsuario, fazerLogout, criarConta } from "./services/authService";
+import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional } from "./services/dataService";
 
 // ── DADOS ────────────────────────────────────────────────────────────────────
 const APP_VERSION = "v2.1";
@@ -3373,20 +3375,42 @@ export default function App(){
     }catch(e){ return null; }
   });
 
-  const [currentUser,setCurrentUser]=useState(()=>{
-    try{ const s=localStorage.getItem('fittrack_user'); return s?JSON.parse(s):null; }
-    catch(e){return null;}
-  });
-  const [profissionais,setProfissionais]=useState(()=>{
-    try{ const s=localStorage.getItem('fittrack_profissionais'); return s?JSON.parse(s):initialProfissionais; }
-    catch(e){return initialProfissionais;}
-  });
-  const [alunos,setAlunos]=useState(()=>{
-    try{
-      const saved=localStorage.getItem('fittrack_alunos');
-      return saved?JSON.parse(saved):initialAlunos;
-    }catch(e){return initialAlunos;}
-  });
+  const [currentUser,setCurrentUser]=useState(null);
+  const [authCarregando,setAuthCarregando]=useState(true);
+
+  // Observa o estado de login do Firebase. Quando o usuario ja tem sessao
+  // ativa (ex: recarregou a pagina), busca os dados completos dele no Firestore.
+  useEffect(()=>{
+    const unsubscribe = observarUsuario(async (usuarioFirebase)=>{
+      if(usuarioFirebase){
+        try{
+          const dadosProf = await buscarProfissional(usuarioFirebase.uid);
+          if(dadosProf){
+            setCurrentUser({...dadosProf, id: usuarioFirebase.uid});
+          }
+        }catch(e){
+          console.error("Erro ao restaurar sessao:", e);
+        }
+      } else {
+        // Sem sessao Firebase ativa. Pode ainda ser um "aluno" logado localmente
+        // (alunos nao usam Firebase Authentication, apenas selecionam o nome).
+        setCurrentUser(prev => (prev && prev.role==="aluno") ? prev : null);
+      }
+      setAuthCarregando(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const [profissionais,setProfissionais]=useState([]);
+  const [alunos,setAlunos]=useState([]);
+
+  // Mantem a lista de profissionais e alunos sincronizada em tempo real com o Firestore.
+  useEffect(()=>{
+    const unsubProf = ouvirProfissionais((lista)=>setProfissionais(lista));
+    const unsubAlunos = ouvirAlunos((lista)=>setAlunos(lista));
+    return ()=>{ unsubProf(); unsubAlunos(); };
+  }, []);
+
   const [view,setView]=useState("profissionais");
   const [profSelecionado,setProfSelecionado]=useState(null);
   const [selected,setSelected]=useState(null);
@@ -3752,6 +3776,17 @@ export default function App(){
   const paC=classPA(form.pressao);
   const poll=calcPollock(form,form.idade,form.sexo);
 
+  // Logout: profissionais usam Firebase Authentication de verdade;
+  // alunos apenas "saem" localmente (nao tem login com senha).
+  const sair = async ()=>{
+    if(currentUser?.role!=="aluno"){
+      try{ await fazerLogout(); }catch(e){}
+    }
+    setCurrentUser(null);
+    setProfSelecionado(null);
+    setView("profissionais");
+  };
+
   // ── Modal EditProf é renderizado globalmente sobre qualquer tela ──────────
   const modalEditProfGlobal = editProfModal && (
     <ModalEditProf
@@ -3764,6 +3799,15 @@ export default function App(){
   );
 
   // ── TELA LOGIN ────────────────────────────────────────────────────────────
+  if(authCarregando)return(
+    <div style={css.app}><GF/>
+      <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
+        <LogoUP size={64}/>
+        <div style={{fontSize:13,color:C.muted}}>Carregando...</div>
+      </div>
+    </div>
+  );
+
   if(!currentUser)return(
     <LoginScreen
       profissionais={profissionais}
@@ -3785,7 +3829,7 @@ export default function App(){
       <div style={css.app}><GF/>
         <header style={css.hdr}>
           <div style={{display:'flex',alignItems:'center',gap:8}}><LogoUP size={32}/><div style={{fontWeight:800,fontSize:16,color:'#f97316'}}>UP Fitness</div></div>
-          <button style={css.btnB} onClick={()=>setCurrentUser(null)}>Sair</button>
+          <button style={css.btnB} onClick={sair}>Sair</button>
         </header>
 
         {/* Hero do aluno */}
@@ -4064,7 +4108,7 @@ export default function App(){
               </span>
             )}
           </button>
-          <button style={css.btnB} onClick={()=>setCurrentUser(null)}>Sair</button>
+          <button style={css.btnB} onClick={sair}>Sair</button>
         </div>
       </header>
       <div style={css.wrap}>
@@ -4426,8 +4470,9 @@ export default function App(){
       </header>
       <div style={css.wrap}>
         <AddProfForm
-          onSave={p=>{
-            setProfissionais(prev=>[...prev,{...p,id:Date.now().toString()}]);
+          onSave={()=>{
+            // O AddProfForm ja salva direto no Firestore (Authentication + doc do profissional).
+            // A lista de profissionais atualiza sozinha via listener em tempo real.
             setView("profissionais");
           }}
           onCancel={()=>setView("profissionais")}
@@ -6049,10 +6094,34 @@ function TreinoView({aluno}){
 }
 
 // ── FORMULÁRIO ADICIONAR PROFISSIONAL ────────────────────────────────────────
-function AddProfForm({onSave,onCancel}){
+function AddProfForm({onSave,onCancel,forcarAdmin}){
   const [nome,setNome]=useState("");
   const [esp,setEsp]=useState("");
-  const [role,setRole]=useState("personal");
+  const [role,setRole]=useState(forcarAdmin?"admin":"personal");
+  const [email,setEmail]=useState("");
+  const [senha,setSenha]=useState("");
+  const [erro,setErro]=useState("");
+  const [salvando,setSalvando]=useState(false);
+
+  const salvar = async ()=>{
+    setErro("");
+    if(!nome.trim()){ setErro("Preencha o nome completo."); return; }
+    if(!email.trim()){ setErro("Preencha o e-mail."); return; }
+    if(!senha || senha.length<6){ setErro("A senha deve ter pelo menos 6 caracteres."); return; }
+
+    setSalvando(true);
+    try{
+      // Cria a conta de autenticacao (email/senha) no Firebase
+      const conta = await criarConta(email.trim(), senha);
+      // Salva os dados do profissional no Firestore, usando o mesmo uid da conta
+      const dados = { nome, especialidade:esp, role, email:email.trim(), foto:null };
+      await salvarProfissional(conta.uid, dados);
+      onSave({ ...dados, id: conta.uid });
+    }catch(e){
+      setErro(e.message || "Erro ao criar o profissional.");
+    }
+    setSalvando(false);
+  };
 
   return(
     <div style={{display:"grid",gap:14}}>
@@ -6067,25 +6136,135 @@ function AddProfForm({onSave,onCancel}){
             <label style={css.lbl}>Especialidade</label>
             <input style={css.input} value={esp} onChange={e=>setEsp(e.target.value)} placeholder="Ex: Musculação e Hipertrofia"/>
           </div>
+          {!forcarAdmin&&(
+            <div>
+              <label style={css.lbl}>Funcao</label>
+              <select style={css.input} value={role} onChange={e=>setRole(e.target.value)}>
+                <option value="personal">Personal Trainer</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{...css.card,background:"#0a1a10",border:"1px solid #34d39940"}}>
+        <div style={{...css.secHdr,color:"#34d399"}}>Acesso ao App</div>
+        <div style={{display:"grid",gap:14}}>
           <div>
-            <label style={css.lbl}>Funcao</label>
-            <select style={css.input} value={role} onChange={e=>setRole(e.target.value)}>
-              <option value="personal">Personal Trainer</option>
-              <option value="admin">Administrador</option>
-            </select>
+            <label style={css.lbl}>E-mail de login *</label>
+            <input type="email" style={css.input} value={email} onChange={e=>setEmail(e.target.value)} placeholder="profissional@email.com"/>
+          </div>
+          <div>
+            <label style={css.lbl}>Senha (minimo 6 caracteres) *</label>
+            <input type="password" style={css.input} value={senha} onChange={e=>setSenha(e.target.value)} placeholder="Senha de acesso"/>
           </div>
         </div>
       </div>
+
+      {erro&&(
+        <div style={{background:"#1a0808",border:"1px solid #7f1d1d60",borderRadius:8,padding:"10px 14px"}}>
+          <div style={{fontSize:12,color:"#f87171",fontWeight:600}}>⚠ {erro}</div>
+        </div>
+      )}
+
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
         <button onClick={onCancel} style={{...css.btnB,width:"100%",padding:"11px"}}>Cancelar</button>
-        <button onClick={()=>{if(!nome.trim())return;onSave({nome,especialidade:esp,role,foto:null});}}
-          style={{...css.btnA,width:"100%",padding:"11px"}}>Salvar</button>
+        <button onClick={salvar} disabled={salvando}
+          style={{...css.btnA,width:"100%",padding:"11px",opacity:salvando?.6:1}}>
+          {salvando ? "Criando..." : "Salvar"}
+        </button>
       </div>
     </div>
   );
 }
 
 // ── TELA LOGIN COMPLETA ───────────────────────────────────────────────────────
+// ── FORMULARIO DE LOGIN REAL (email/senha via Firebase Authentication) ──────
+function LoginProfissionalForm({onVoltar, onLoginProf}){
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState("");
+  const [carregando, setCarregando] = useState(false);
+
+  const entrar = async ()=>{
+    if(!email.trim() || !senha.trim()){
+      setErro("Preencha e-mail e senha.");
+      return;
+    }
+    setErro("");
+    setCarregando(true);
+    try{
+      const usuario = await fazerLogin(email.trim(), senha);
+      // Busca os dados completos do profissional no Firestore (nome, role, etc.)
+      const dadosProf = await buscarProfissional(usuario.uid);
+      if(!dadosProf){
+        setErro("Login realizado, mas não encontramos seu cadastro de profissional. Fale com o administrador.");
+        setCarregando(false);
+        return;
+      }
+      onLoginProf({ ...dadosProf, id: usuario.uid });
+    }catch(e){
+      setErro(e.message || "Erro ao entrar. Verifique e-mail e senha.");
+    }
+    setCarregando(false);
+  };
+
+  return(
+    <div style={css.app}><GF/>
+      <header style={css.hdr}>
+        <button style={css.btnB} onClick={onVoltar}>← Voltar</button>
+        <div style={{fontWeight:700,fontSize:15}}>Login Profissional</div>
+        <div style={{width:70}}/>
+      </header>
+      <div style={{minHeight:"70vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div style={{maxWidth:360,width:"100%"}}>
+          <div style={css.card}>
+            <div style={css.secHdr}>Entrar</div>
+
+            {erro&&(
+              <div style={{background:"#1a0808",border:"1px solid #7f1d1d60",borderRadius:8,padding:"10px 14px",marginBottom:14}}>
+                <div style={{fontSize:12,color:"#f87171",fontWeight:600}}>⚠ {erro}</div>
+              </div>
+            )}
+
+            <div style={{marginBottom:14}}>
+              <label style={css.lbl}>E-mail</label>
+              <input
+                type="email"
+                value={email}
+                onChange={e=>setEmail(e.target.value)}
+                onKeyDown={e=>{ if(e.key==="Enter") entrar(); }}
+                placeholder="seu@email.com"
+                style={css.input}
+                autoComplete="email"
+              />
+            </div>
+
+            <div style={{marginBottom:20}}>
+              <label style={css.lbl}>Senha</label>
+              <input
+                type="password"
+                value={senha}
+                onChange={e=>setSenha(e.target.value)}
+                onKeyDown={e=>{ if(e.key==="Enter") entrar(); }}
+                placeholder="Sua senha"
+                style={css.input}
+                autoComplete="current-password"
+              />
+            </div>
+
+            <button onClick={entrar} disabled={carregando}
+              style={{...css.btnA, width:"100%", padding:"13px", fontSize:15, opacity:carregando?.6:1}}>
+              {carregando ? "Entrando..." : "Entrar"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LoginScreen({profissionais,alunos,onLoginProf,onLoginAluno}){
   const [tela,setTela]=useState("home"); // "home" | "prof" | "aluno"
   const [busca,setBusca]=useState("");
@@ -6135,43 +6314,48 @@ function LoginScreen({profissionais,alunos,onLoginProf,onLoginAluno}){
               <span style={{color:"#34d399",fontSize:22,marginLeft:"auto"}}>›</span>
             </button>
           </div>
+
+          {/* Primeiro acesso: só aparece se ainda não existe nenhum profissional
+              cadastrado no sistema. Depois que o primeiro Admin for criado, este
+              link desaparece automaticamente (evita que qualquer pessoa crie contas). */}
+          {profissionais.length===0&&(
+            <div style={{textAlign:"center",marginTop:24}}>
+              <button onClick={()=>setTela("primeiroAcesso")}
+                style={{background:"transparent",border:"none",color:C.muted,fontSize:12,
+                  cursor:"pointer",fontFamily:"Inter,sans-serif",textDecoration:"underline"}}>
+                Primeiro acesso? Criar conta de administrador
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 
-  // ── TELA PROFISSIONAL ──
-  if(tela==="prof") return(
+  // ── TELA PRIMEIRO ACESSO (cria o primeiro Admin) ──
+  if(tela==="primeiroAcesso") return(
     <div style={css.app}><GF/>
       <header style={css.hdr}>
         <button style={css.btnB} onClick={()=>setTela("home")}>← Voltar</button>
-        <div style={{fontWeight:700,fontSize:15}}>Profissionais</div>
+        <div style={{fontWeight:700,fontSize:15}}>Primeiro Acesso</div>
         <div style={{width:70}}/>
       </header>
       <div style={css.wrap}>
-        <div style={{display:"grid",gap:10,marginBottom:16}}>
-          {[...profissionais].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(p=>(
-            <button key={p.id} onClick={()=>onLoginProf(p)}
-              style={{background:C.card,border:"1px solid #2e1e0a",borderRadius:12,padding:"14px 16px",
-                display:"flex",alignItems:"center",gap:14,cursor:"pointer",textAlign:"left",width:"100%"}}>
-              <Avatar nome={p.nome} foto={p.foto} size={44}/>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontWeight:700,fontSize:15,color:C.text}}>{p.nome}</div>
-                <div style={{fontSize:11,marginTop:4}}>
-                  <span style={css.badge(p.role==="admin"?"#f97316":"#6366f1")}>{p.role==="admin"?"Admin":"Personal"}</span>
-                </div>
-              </div>
-              <span style={{color:C.accent,fontSize:20}}>›</span>
-            </button>
-          ))}
+        <div style={{background:"#1a1008",border:"1px solid "+C.accent+"40",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:12,color:C.text,lineHeight:1.6}}>
+          Como ainda não existe nenhum profissional cadastrado, crie aqui a primeira conta de administrador do UP Fitness.
         </div>
-        <div style={{borderTop:"1px solid #2e1e0a",paddingTop:16,textAlign:"center"}}>
-          <div style={{fontSize:11,color:C.muted,marginBottom:10}}>Acesso administrativo</div>
-          <button onClick={()=>onLoginProf({id:"admin",nome:"Administrador",role:"admin",especialidade:"Gestao"})}
-            style={{...css.btnC,fontSize:13,padding:"10px 20px"}}>Entrar como Admin</button>
-        </div>
+        <AddProfForm
+          onSave={()=>{ setTela("prof"); }}
+          onCancel={()=>setTela("home")}
+          forcarAdmin={true}
+        />
       </div>
     </div>
+  );
+
+  // ── TELA PROFISSIONAL (login real com email/senha) ──
+  if(tela==="prof") return(
+    <LoginProfissionalForm onVoltar={()=>setTela("home")} onLoginProf={onLoginProf}/>
   );
 
   // ── TELA ALUNO ──
