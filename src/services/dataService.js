@@ -16,6 +16,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
   onSnapshot,
   query,
   where,
@@ -72,9 +73,23 @@ export function ouvirAgenda(profissionalId, callback) {
   });
 }
 
+// Ouve TODAS as agendas de uma vez (necessario para a Busca de Vagas, que
+// precisa comparar horarios entre todos os profissionais simultaneamente).
+// Retorna um objeto no formato { [profissionalId]: dadosDaAgenda }.
+export function ouvirTodasAgendas(callback) {
+  return onSnapshot(collection(db, "agendas"), (snap) => {
+    const todas = {};
+    snap.docs.forEach((d) => { todas[d.id] = d.data(); });
+    callback(todas);
+  });
+}
+
 export async function atualizarCelulaAgenda(profissionalId, chave, valor) {
   const ref = doc(db, "agendas", profissionalId);
-  await setDoc(ref, { [chave]: valor }, { merge: true });
+  // valor null/undefined significa "célula vazia" -> remove o campo do documento
+  // em vez de gravar null (evita registros vazios acumulando no banco).
+  const valorFinal = valor === null || valor === undefined ? deleteField() : valor;
+  await setDoc(ref, { [chave]: valorFinal }, { merge: true });
 }
 
 export async function atualizarHorariosPorDia(profissionalId, dia, novaLista) {

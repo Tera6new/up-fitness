@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { fazerLogin, observarUsuario, fazerLogout, criarConta } from "./services/authService";
-import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore } from "./services/dataService";
+import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia } from "./services/dataService";
 
 // ── DADOS ────────────────────────────────────────────────────────────────────
 const APP_VERSION = "v2.1";
@@ -3451,10 +3451,13 @@ export default function App(){
   const [importTexto,setImportTexto]=useState("");
   const [importErro,setImportErro]=useState("");
   const [importSucesso,setImportSucesso]=useState("");
-  const [agendas,setAgendas]=useState(()=>{
-    try{ const s=localStorage.getItem('fittrack_agendas'); return s?JSON.parse(s):{}; }
-    catch(e){return {};}
-  });
+  const [agendas,setAgendas]=useState({});
+
+  // Mantem todas as agendas sincronizadas em tempo real com o Firestore.
+  useEffect(()=>{
+    const unsubAgendas = ouvirTodasAgendas((todas)=>setAgendas(todas));
+    return ()=>unsubAgendas();
+  }, []);
 
   const alunosDoProf=useMemo(()=>
     profSelecionado ? alunos.filter(a=>a.profissionalId===profSelecionado.id) : []
@@ -3500,45 +3503,12 @@ export default function App(){
   const restaurarBackupDeJson = (jsonStr)=>{
     setImportErro("");
     setImportSucesso("");
-    try{
-      const texto = (jsonStr||"").trim();
-      if(!texto){
-        setImportErro("O campo está vazio. Cole o conteúdo do backup antes de restaurar.");
-        return false;
-      }
-      let backup;
-      try{
-        backup = JSON.parse(texto);
-      }catch(parseErr){
-        setImportErro("Não foi possível interpretar o texto como JSON válido. Verifique se colou o conteúdo completo (do '{' inicial até o '}' final), sem cortar nenhuma parte. Detalhe: "+parseErr.message);
-        return false;
-      }
-      if(!backup || typeof backup!=="object"){
-        setImportErro("O conteúdo colado não é um backup válido.");
-        return false;
-      }
-      if(!Array.isArray(backup.alunos)){
-        setImportErro("O backup não contém a lista de alunos (campo 'alunos' ausente ou inválido). Confirme que colou o backup correto.");
-        return false;
-      }
-      if(!Array.isArray(backup.profissionais)){
-        setImportErro("O backup não contém a lista de profissionais (campo 'profissionais' ausente ou inválido).");
-        return false;
-      }
-      setAlunos(backup.alunos);
-      setProfissionais(backup.profissionais);
-      if(backup.agendas) setAgendas(backup.agendas);
-      if(backup.ouvidorias){
-        Object.entries(backup.ouvidorias).forEach(([alunoId, msgs])=>{
-          localStorage.setItem(`fittrack_ouvidoria_${alunoId}`, JSON.stringify(msgs));
-        });
-      }
-      setImportSucesso(`Backup restaurado! ${backup.alunos.length} aluno(s) e ${backup.profissionais.length} profissional(is) carregados.`);
-      return true;
-    }catch(err){
-      setImportErro("Erro inesperado ao restaurar backup: "+err.message);
-      return false;
-    }
+    // AVISO: esta função ainda é da era localStorage e não grava no Firestore.
+    // Com o app conectado ao Firebase, restaurar um backup requer regravar
+    // cada aluno/profissional/agenda no banco (não apenas no estado local).
+    // Desativada temporariamente até termos uma versão que salve no Firestore.
+    setImportErro("A restauração de backup ainda não foi adaptada para o Firebase. Esta função será reativada em uma próxima etapa da migração.");
+    return false;
   };
 
   const importarBackup = (file)=>{
@@ -3638,11 +3608,6 @@ export default function App(){
     try{ localStorage.setItem('fittrack_user', JSON.stringify(currentUser)); }
     catch(e){}
   },[currentUser]);
-
-  useEffect(()=>{
-    try{ localStorage.setItem('fittrack_agendas', JSON.stringify(agendas)); }
-    catch(e){}
-  },[agendas]);
 
   useEffect(()=>{
     try{ localStorage.setItem('fittrack_pagamentos', JSON.stringify(pagamentos)); }
@@ -4022,25 +3987,19 @@ export default function App(){
           setView("detail");
         }}
         onVoltar={()=>setView("agendaSelecao")}
-        onUpdateCelula={(key,val)=>{
-          setAgendas(prev=>{
-            const atual = {...(prev[agendaProfSel.id]||{})};
-            if(!val.status && !val.nome){
-              delete atual[key];
-            } else {
-              atual[key] = val;
-            }
-            return {...prev, [agendaProfSel.id]:atual};
-          });
+        onUpdateCelula={async(key,val)=>{
+          try{
+            await atualizarCelulaAgenda(agendaProfSel.id, key, (!val.status && !val.nome) ? null : val);
+          }catch(e){
+            console.error("Erro ao atualizar celula da agenda:", e);
+          }
         }}
-        onUpdateHorariosPorDia={(dia, novaLista)=>{
-          setAgendas(prev=>{
-            const atual = {...(prev[agendaProfSel.id]||{})};
-            const horariosPorDiaAtual = {...(atual.horariosPorDia||{})};
-            horariosPorDiaAtual[dia] = novaLista;
-            atual.horariosPorDia = horariosPorDiaAtual;
-            return {...prev, [agendaProfSel.id]:atual};
-          });
+        onUpdateHorariosPorDia={async(dia, novaLista)=>{
+          try{
+            await atualizarHorariosPorDia(agendaProfSel.id, dia, novaLista);
+          }catch(e){
+            console.error("Erro ao atualizar horarios da agenda:", e);
+          }
         }}
       />
     );
