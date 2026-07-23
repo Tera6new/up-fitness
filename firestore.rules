@@ -1,0 +1,64 @@
+rules_version = '2';
+
+// ── Regras de Segurança do Firestore — UP Fitness ─────────────────────────
+// Cole este conteúdo em: Firebase Console → Firestore Database → Regras
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Verifica se o usuário está logado
+    function estaLogado() {
+      return request.auth != null;
+    }
+
+    // Verifica se o usuário logado é admin (consulta o próprio doc de profissional)
+    function ehAdmin() {
+      return estaLogado() &&
+        get(/databases/$(database)/documents/profissionais/$(request.auth.uid)).data.role == "admin";
+    }
+
+    // Profissionais: qualquer usuário logado pode ler (para listar a equipe).
+    // Só o próprio profissional ou um admin pode editar seu registro.
+    match /profissionais/{profId} {
+      allow read: if estaLogado();
+      allow write: if estaLogado() && (request.auth.uid == profId || ehAdmin());
+    }
+
+    // Alunos: qualquer profissional logado pode ler (para Atalho Rápido / Busca Global).
+    // Qualquer profissional logado pode criar/editar (regra ampla, igual ao app atual).
+    match /alunos/{alunoId} {
+      allow read: if estaLogado();
+      allow write: if estaLogado();
+    }
+
+    // Agendas: qualquer profissional logado pode ler e editar (igual ao app atual,
+    // onde qualquer profissional pode mexer na agenda de qualquer colega).
+    match /agendas/{profId} {
+      allow read: if estaLogado();
+      allow write: if estaLogado();
+    }
+
+    // Pagamentos: leitura liberada para profissionais logados (para consolidado do admin).
+    // Escrita: só o próprio profissional dono da planilha, ou admin.
+    match /pagamentos/{profId} {
+      allow read: if estaLogado();
+      allow write: if estaLogado() && (request.auth.uid == profId || ehAdmin());
+    }
+
+    // Convites: leitura pública (para o aluno acessar via link, sem estar logado).
+    // Escrita: só profissionais logados podem criar convites.
+    match /convites/{token} {
+      allow read: if true;
+      allow create: if estaLogado();
+      allow update: if true; // permite o aluno marcar como "preenchido" sem estar logado
+    }
+
+    // Ouvidoria: leitura/escrita liberada para logados (profissional vê tudo).
+    // O aluno preenche via link público, então a escrita de criação também
+    // precisa ser aberta (ajustar depois se quiser mais restrição).
+    match /ouvidoria/{alunoId} {
+      allow read: if estaLogado();
+      allow write: if true;
+    }
+  }
+}
