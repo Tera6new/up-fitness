@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { fazerLogin, observarUsuario, fazerLogout, criarConta } from "./services/authService";
-import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional } from "./services/dataService";
+import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore } from "./services/dataService";
 
 // ── DADOS ────────────────────────────────────────────────────────────────────
 const APP_VERSION = "v2.1";
@@ -3594,18 +3594,21 @@ export default function App(){
     return(
       <FormularioPublicoAluno
         convite={conviteAtual}
-        onEnviar={(dadosForm)=>{
+        onEnviar={async(dadosForm)=>{
           // Cria o aluno vinculado ao profissional do convite.
           // Sem campos de mensalidade — isso fica exclusivamente com o profissional.
           const novoAluno = {
             ...emptyForm,
             ...dadosForm,
-            id: Date.now(),
             profissionalId: conviteAtual.profissionalId,
             dataCadastro: new Date().toISOString().slice(0,10),
             ativo: true,
           };
-          setAlunos(prev=>[...prev, novoAluno]);
+          try{
+            await criarAluno(novoAluno);
+          }catch(e){
+            console.error("Erro ao salvar aluno via link publico:", e);
+          }
           // Marca o convite como preenchido para nao ser reutilizado
           try{
             const convites = JSON.parse(localStorage.getItem('fittrack_convites')||'{}');
@@ -3657,16 +3660,24 @@ export default function App(){
     setEditProfModal(null);
   };
 
-  const excluirProfissional=(profId)=>{
-    setProfissionais(prev=>prev.filter(p=>p.id!==profId));
+  const excluirProfissional=async(profId)=>{
+    try{ await excluirProfissionalDoFirestore(profId); }
+    catch(e){ console.error("Erro ao excluir profissional:", e); }
     // Alunos vinculados ficam sem profissional responsavel (nao sao excluidos)
-    setAlunos(prev=>prev.map(a=>a.profissionalId===profId?{...a,profissionalId:null}:a));
+    const alunosDoProf = alunos.filter(a=>a.profissionalId===profId);
+    try{
+      await Promise.all(alunosDoProf.map(a=>salvarAluno(a.id, {profissionalId:null})));
+    }catch(e){ console.error("Erro ao desvincular alunos:", e); }
     if(profSelecionado?.id===profId){ setProfSelecionado(null); setView("profissionais"); }
     setEditProfModal(null);
   };
 
-  const transferirAluno=(alunoId,novoProfId)=>{
-    setAlunos(prev=>prev.map(a=>a.id===alunoId?{...a,profissionalId:novoProfId}:a));
+  const transferirAluno=async(alunoId,novoProfId)=>{
+    try{
+      await salvarAluno(alunoId, {profissionalId:novoProfId});
+    }catch(e){
+      console.error("Erro ao transferir aluno:", e);
+    }
     setTransferModal(null);
   };
 
@@ -3726,7 +3737,7 @@ export default function App(){
     const r=new FileReader();r.onload=ev=>u("foto",ev.target.result);r.readAsDataURL(f);
   };
 
-  const save=()=>{
+  const save=async()=>{
     if(!form.nome.trim()){alert("Nome obrigatório.");setPg(1);return;}
     if(editId){
       const atual=alunos.find(a=>a.id===editId)||{};
@@ -3752,22 +3763,41 @@ export default function App(){
       // Só arquiva se havia dados físicos (evita snapshots vazios)
       const novoHistorico = temDadosFisicos ? [snapshot, ...historicoAtual] : historicoAtual;
       const merged={...atual,...form, historicoAvaliacoes:novoHistorico};
-      setAlunos(p=>p.map(a=>a.id===editId?merged:a));
+      try{
+        await salvarAluno(editId, merged);
+      }catch(e){
+        console.error("Erro ao salvar edicao do aluno:", e);
+      }
       setSelected(merged);
     }else{
-      setAlunos(p=>[...p,{...form,id:Date.now(),dataCadastro:new Date().toISOString().slice(0,10)}]);
+      const novoAluno = {...form, dataCadastro:new Date().toISOString().slice(0,10)};
+      try{
+        await criarAluno(novoAluno);
+      }catch(e){
+        console.error("Erro ao criar aluno:", e);
+      }
     }
     setView(editId?"detail":"home");
   };
 
-  const delAluno=id=>{setAlunos(p=>p.filter(a=>a.id!==id));setDelId(null);setView("home");};
+  const delAluno=async(id)=>{
+    try{ await excluirAluno(id); }
+    catch(e){ console.error("Erro ao excluir aluno:", e); }
+    setDelId(null);
+    setView("home");
+  };
 
-  const addAval=()=>{
+  const addAval=async()=>{
     if(!novaAval)return;
     const nova={data:novaAval.data||new Date().toISOString().slice(0,10),peso:novaAval.peso,soma:novaAval.soma,pct:novaAval.pct,cintura:novaAval.cintura};
     const upd=a=>({...a,historicoAvaliacoes:[...(a.historicoAvaliacoes||[]),nova]});
-    setAlunos(p=>p.map(a=>a.id===selected.id?upd(a):a));
-    setSelected(p=>upd(p));
+    const alunoAtualizado = upd(selected);
+    try{
+      await salvarAluno(selected.id, {historicoAvaliacoes:alunoAtualizado.historicoAvaliacoes});
+    }catch(e){
+      console.error("Erro ao adicionar avaliacao:", e);
+    }
+    setSelected(alunoAtualizado);
     setNovaAval(null);
   };
 
@@ -4163,7 +4193,7 @@ export default function App(){
             const meus=alunos.filter(a=>a.profissionalId===p.id);
             const ativos=meus.filter(a=>a.ativo).length;
             const pal=["#6366f1","#ec4899","#f59e0b","#10b981","#3b82f6","#8b5cf6","#ef4444","#06b6d4"];
-            const cor=pal[(p.nome.charCodeAt(0)||0)%pal.length];
+            const cor=pal[(p.nome?.charCodeAt(0)||0)%pal.length];
             return(
               <div key={p.id}
                 onClick={()=>{setProfSelecionado(p);setBusca("");setView("home");}}
@@ -4721,10 +4751,15 @@ export default function App(){
   if(view==="avaliacao"&&selected){
     const a=alunos.find(x=>x.id===selected.id)||selected;
     return <AvaliacaoFormView aluno={a} onVoltar={()=>setView("detail")}
-      onSalvar={(snapshot)=>{
+      onSalvar={async(snapshot)=>{
         const upd=prev=>({...prev,historicoAvaliacoes:[snapshot,...(prev.historicoAvaliacoes||[])]});
-        setAlunos(p=>p.map(x=>x.id===a.id?upd(x):x));
-        setSelected(upd(a));
+        const alunoAtualizado = upd(a);
+        try{
+          await salvarAluno(a.id, {historicoAvaliacoes:alunoAtualizado.historicoAvaliacoes});
+        }catch(e){
+          console.error("Erro ao salvar avaliacao:", e);
+        }
+        setSelected(alunoAtualizado);
       }}
     />;
   }
@@ -4880,10 +4915,14 @@ export default function App(){
               A avaliacao fisica e lancada de forma independente, com data propria e historico automatico.
             </div>
             {editId&&(
-              <button onClick={()=>{
+              <button onClick={async()=>{
                 // Salva o cadastro e abre a tela de avaliação
                 const merged={...alunos.find(a=>a.id===editId)||{},...form};
-                setAlunos(p=>p.map(a=>a.id===editId?merged:a));
+                try{
+                  await salvarAluno(editId, merged);
+                }catch(e){
+                  console.error("Erro ao salvar antes de ir para avaliacao:", e);
+                }
                 setSelected(merged);
                 setView("avaliacao");
               }} style={{...css.btnA,padding:"12px 24px",fontSize:14}}>
@@ -5103,9 +5142,13 @@ export default function App(){
               <GaleriaFotosEvolucao
                 fotos={a.fotosEvolucao||[]}
                 podeEditar={podeEditar}
-                onUpdateFotos={(novasFotos)=>{
+                onUpdateFotos={async(novasFotos)=>{
                   const upd={...a, fotosEvolucao:novasFotos};
-                  setAlunos(p=>p.map(x=>x.id===a.id?upd:x));
+                  try{
+                    await salvarAluno(a.id, {fotosEvolucao:novasFotos});
+                  }catch(e){
+                    console.error("Erro ao salvar fotos de evolucao:", e);
+                  }
                   setSelected(upd);
                 }}
               />
@@ -5119,10 +5162,14 @@ export default function App(){
             </div>
             <AvaliacaoAlunoView aluno={a}
               podeEditar={podeEditar}
-              onExcluirAvaliacao={(idxNoHistorico)=>{
+              onExcluirAvaliacao={async(idxNoHistorico)=>{
                 const novo=(a.historicoAvaliacoes||[]).filter((_,idx)=>idx!==idxNoHistorico);
                 const upd={...a,historicoAvaliacoes:novo};
-                setAlunos(p=>p.map(x=>x.id===a.id?upd:x));
+                try{
+                  await salvarAluno(a.id, {historicoAvaliacoes:novo});
+                }catch(e){
+                  console.error("Erro ao excluir avaliacao:", e);
+                }
                 setSelected(upd);
               }}
             />
