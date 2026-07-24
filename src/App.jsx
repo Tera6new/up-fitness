@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { fazerLogin, observarUsuario, fazerLogout, criarConta } from "./services/authService";
-import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia } from "./services/dataService";
+import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia, ouvirTodosPagamentos, atualizarMesPagamento } from "./services/dataService";
 
 // ── DADOS ────────────────────────────────────────────────────────────────────
 const APP_VERSION = "v2.1";
@@ -3442,10 +3442,19 @@ export default function App(){
   const [treinoAba,setTreinoAba]=useState('geral');
   const [agendaProfSel,setAgendaProfSel]=useState(null);
   const [pagamentosProfSel,setPagamentosProfSel]=useState(null);
-  const [pagamentos,setPagamentos]=useState(()=>{
-    try{ const s=localStorage.getItem('fittrack_pagamentos'); return s?JSON.parse(s):{}; }
-    catch(e){return {};}
-  });
+  const [pagamentos,setPagamentos]=useState({});
+
+  // Mantem todos os pagamentos sincronizados em tempo real com o Firestore.
+  // So inicia depois que o login estiver confirmado (mesma correção aplicada
+  // em profissionais/alunos/agendas, evita tela vazia em conexões lentas).
+  useEffect(()=>{
+    if(authCarregando) return;
+    if(!currentUser) return;
+
+    const unsubPagamentos = ouvirTodosPagamentos((todos)=>setPagamentos(todos));
+    return ()=>unsubPagamentos();
+  }, [authCarregando, currentUser?.id]);
+
   const [backupTexto,setBackupTexto]=useState(null);
   const [modalWhatsAppAluno,setModalWhatsAppAluno]=useState(null);
   const [envioMassaAberto,setEnvioMassaAberto]=useState(false);
@@ -3619,11 +3628,6 @@ export default function App(){
     try{ localStorage.setItem('fittrack_user', JSON.stringify(currentUser)); }
     catch(e){}
   },[currentUser]);
-
-  useEffect(()=>{
-    try{ localStorage.setItem('fittrack_pagamentos', JSON.stringify(pagamentos)); }
-    catch(e){}
-  },[pagamentos]);
 
   const u=(k,v)=>setForm(p=>({...p,[k]:v}));
 
@@ -4041,13 +4045,19 @@ export default function App(){
         alunos={alunos}
         podeEditar={podeEditarPagamentos}
         onVoltar={()=>setView("pagamentosSelecao")}
-        onUpdateMes={(mes, novasLinhas)=>{
-          if(!podeEditarPagamentos) return;
-          setPagamentos(prev=>{
-            const atual = {...(prev[pagamentosProfSel.id]||{})};
-            atual[mes] = novasLinhas;
-            return {...prev, [pagamentosProfSel.id]:atual};
-          });
+        onUpdateMes={async(mes, novasLinhas)=>{
+          console.log("[DIAGNOSTICO] onUpdateMes chamado", {mes, novasLinhas, podeEditarPagamentos, profId: pagamentosProfSel?.id, currentUserRole: currentUser?.role, currentUserId: currentUser?.id});
+          if(!podeEditarPagamentos){
+            console.log("[DIAGNOSTICO] Bloqueado: podeEditarPagamentos é false");
+            return;
+          }
+          try{
+            console.log("[DIAGNOSTICO] Chamando atualizarMesPagamento...");
+            await atualizarMesPagamento(pagamentosProfSel.id, mes, novasLinhas);
+            console.log("[DIAGNOSTICO] atualizarMesPagamento concluido com sucesso!");
+          }catch(e){
+            console.error("[DIAGNOSTICO] ERRO ao atualizar pagamentos:", e);
+          }
         }}
       />
     );
