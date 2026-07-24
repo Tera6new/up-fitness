@@ -3405,11 +3405,18 @@ export default function App(){
   const [alunos,setAlunos]=useState([]);
 
   // Mantem a lista de profissionais e alunos sincronizada em tempo real com o Firestore.
+  // IMPORTANTE: só inicia os listeners depois que o login (Firebase Auth) foi
+  // confirmado. Sem isso, em conexões mais lentas (ex: celular), o listener
+  // pode tentar ler antes da sessao estar pronta e ser bloqueado pelas regras
+  // de segurança sem tentar de novo — deixando a lista vazia silenciosamente.
   useEffect(()=>{
+    if(authCarregando) return; // aguarda a confirmacao do login antes de tentar ler
+    if(!currentUser) return;   // sem sessao, nao adianta tentar (regras exigem login)
+
     const unsubProf = ouvirProfissionais((lista)=>setProfissionais(lista));
     const unsubAlunos = ouvirAlunos((lista)=>setAlunos(lista));
     return ()=>{ unsubProf(); unsubAlunos(); };
-  }, []);
+  }, [authCarregando, currentUser?.id]);
 
   const [view,setView]=useState("profissionais");
   const [profSelecionado,setProfSelecionado]=useState(null);
@@ -3454,10 +3461,14 @@ export default function App(){
   const [agendas,setAgendas]=useState({});
 
   // Mantem todas as agendas sincronizadas em tempo real com o Firestore.
+  // Mesma correção: só inicia depois que o login estiver confirmado.
   useEffect(()=>{
+    if(authCarregando) return;
+    if(!currentUser) return;
+
     const unsubAgendas = ouvirTodasAgendas((todas)=>setAgendas(todas));
     return ()=>unsubAgendas();
-  }, []);
+  }, [authCarregando, currentUser?.id]);
 
   const alunosDoProf=useMemo(()=>
     profSelecionado ? alunos.filter(a=>a.profissionalId===profSelecionado.id) : []
