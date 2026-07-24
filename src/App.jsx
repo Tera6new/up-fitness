@@ -1447,6 +1447,7 @@ function AgendaGridView({prof, agenda, onUpdateCelula, onUpdateHorariosPorDia, o
   const [novoHorario,setNovoHorario]=useState("");
   const [diasParaAdicionar,setDiasParaAdicionar]=useState([]); // dias extras selecionados no formulário
   const [confirmarRemover,setConfirmarRemover]=useState(null);
+  const [salvandoHorario,setSalvandoHorario]=useState(false);
 
   // Horários agora são por dia: agenda.horariosPorDia[dia] = ["06H","07H",...]
   // Cada dia começa vazio até o profissional adicionar manualmente.
@@ -1469,30 +1470,39 @@ function AgendaGridView({prof, agenda, onUpdateCelula, onUpdateHorariosPorDia, o
     );
   };
 
-  const adicionarHorario = ()=>{
+  const adicionarHorario = async ()=>{
     const h = novoHorario.trim().toUpperCase();
     if(!h) return;
     if(diasParaAdicionar.length===0) return;
     // Aceita formatos como "05H", "13H30", "5H" -> normaliza levemente
     const formatado = h.endsWith("H") || /H\d/.test(h) ? h : h+"H";
 
-    diasParaAdicionar.forEach(dia=>{
-      const listaAtual = horariosPorDia[dia] || [];
-      if(listaAtual.includes(formatado)) return;
-      const novaLista = [...listaAtual, formatado].sort((a,b)=>{
-        const numA = parseInt(a) || 0;
-        const numB = parseInt(b) || 0;
-        return numA - numB;
-      });
-      onUpdateHorariosPorDia(dia, novaLista);
-    });
+    setSalvandoHorario(true);
+    try{
+      // IMPORTANTE: aguarda cada dia terminar antes de ir para o proximo.
+      // Como onUpdateHorariosPorDia le o documento, modifica e grava de volta,
+      // rodar todos os dias ao mesmo tempo causa "corrida": a ultima chamada
+      // sobrescreve o resultado das anteriores e alguns dias somem.
+      for(const dia of diasParaAdicionar){
+        const listaAtual = horariosPorDia[dia] || [];
+        if(listaAtual.includes(formatado)) continue;
+        const novaLista = [...listaAtual, formatado].sort((a,b)=>{
+          const numA = parseInt(a) || 0;
+          const numB = parseInt(b) || 0;
+          return numA - numB;
+        });
+        await onUpdateHorariosPorDia(dia, novaLista);
+      }
+    }finally{
+      setSalvandoHorario(false);
+    }
 
     setNovoHorario("");
   };
 
-  const removerHorario = (hora)=>{
+  const removerHorario = async (hora)=>{
     const novaLista = horariosDoDia.filter(h=>h!==hora);
-    onUpdateHorariosPorDia(diaAtivo, novaLista);
+    await onUpdateHorariosPorDia(diaAtivo, novaLista);
     // Limpa também as células desse horário nesse dia especificamente
     for(let slot=0; slot<AGENDA_SLOTS_POR_HORA; slot++){
       const key = `${diaAtivo}_${hora}_${slot}`;
@@ -1589,10 +1599,10 @@ function AgendaGridView({prof, agenda, onUpdateCelula, onUpdateHorariosPorDia, o
               style={{...css.input,flex:1}}
             />
             <button onClick={adicionarHorario}
-              disabled={!novoHorario.trim()||diasParaAdicionar.length===0}
+              disabled={!novoHorario.trim()||diasParaAdicionar.length===0||salvandoHorario}
               style={{...css.btnA,padding:"10px 18px",fontSize:13,flexShrink:0,
-                opacity:(!novoHorario.trim()||diasParaAdicionar.length===0)?.5:1}}>
-              Adicionar
+                opacity:(!novoHorario.trim()||diasParaAdicionar.length===0||salvandoHorario)?.5:1}}>
+              {salvandoHorario?"Salvando...":"Adicionar"}
             </button>
           </div>
 
