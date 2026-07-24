@@ -2425,11 +2425,7 @@ function PlanilhaMesView({prof, mesAtivo, linhas, onUpdateLinhas, onVoltar, pode
   const [confirmarRemover,setConfirmarRemover] = useState(null); // idx da linha a remover
 
   const atualizarLinha = (idx, campo, valor)=>{
-    console.log("[DIAGNOSTICO] atualizarLinha chamado", {idx, campo, valor, podeEditar});
-    if(!podeEditar){
-      console.log("[DIAGNOSTICO] atualizarLinha BLOQUEADO: podeEditar é", podeEditar);
-      return;
-    }
+    if(!podeEditar) return;
     const novasLinhas = linhas.map((l,i)=> i===idx ? {...l,[campo]:valor} : l);
     onUpdateLinhas(novasLinhas);
   };
@@ -4050,17 +4046,13 @@ export default function App(){
         podeEditar={podeEditarPagamentos}
         onVoltar={()=>setView("pagamentosSelecao")}
         onUpdateMes={async(mes, novasLinhas)=>{
-          console.log("[DIAGNOSTICO] onUpdateMes chamado", {mes, novasLinhas, podeEditarPagamentos, profId: pagamentosProfSel?.id, currentUserRole: currentUser?.role, currentUserId: currentUser?.id});
           if(!podeEditarPagamentos){
-            console.log("[DIAGNOSTICO] Bloqueado: podeEditarPagamentos é false");
             return;
           }
           try{
-            console.log("[DIAGNOSTICO] Chamando atualizarMesPagamento...");
             await atualizarMesPagamento(pagamentosProfSel.id, mes, novasLinhas);
-            console.log("[DIAGNOSTICO] atualizarMesPagamento concluido com sucesso!");
           }catch(e){
-            console.error("[DIAGNOSTICO] ERRO ao atualizar pagamentos:", e);
+            console.error("Erro ao atualizar pagamentos:", e);
           }
         }}
       />

@@ -107,6 +107,17 @@ export function ouvirPagamentos(profissionalId, callback) {
   });
 }
 
+// Ouve TODOS os pagamentos de uma vez (necessario para o Consolidado Geral,
+// que soma os valores de todos os profissionais simultaneamente).
+// Retorna um objeto no formato { [profissionalId]: dadosDoPagamento }.
+export function ouvirTodosPagamentos(callback) {
+  return onSnapshot(collection(db, "pagamentos"), (snap) => {
+    const todos = {};
+    snap.docs.forEach((d) => { todos[d.id] = d.data(); });
+    callback(todos);
+  });
+}
+
 export async function atualizarMesPagamento(profissionalId, mes, linhas) {
   const ref = doc(db, "pagamentos", profissionalId);
   await setDoc(ref, { [mes]: linhas }, { merge: true });
