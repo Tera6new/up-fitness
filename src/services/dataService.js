@@ -147,3 +147,14 @@ export function ouvirOuvidoria(alunoId, callback) {
 export async function adicionarMensagemOuvidoria(alunoId, mensagens) {
   await setDoc(doc(db, "ouvidoria", String(alunoId)), { mensagens }, { merge: true });
 }
+
+// Ouve TODAS as ouvidorias de uma vez (necessario para a tela de Ouvidoria
+// Admin, que mostra mensagens de todos os alunos juntas com contagem de
+// nao lidas). Retorna um objeto no formato { [alunoId]: [mensagens...] }.
+export function ouvirTodasOuvidorias(callback) {
+  return onSnapshot(collection(db, "ouvidoria"), (snap) => {
+    const todas = {};
+    snap.docs.forEach((d) => { todas[d.id] = d.data().mensagens || []; });
+    callback(todas);
+  });
+}

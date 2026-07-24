@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { fazerLogin, observarUsuario, fazerLogout, criarConta } from "./services/authService";
-import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia, ouvirTodosPagamentos, atualizarMesPagamento } from "./services/dataService";
+import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia, ouvirTodosPagamentos, atualizarMesPagamento, ouvirOuvidoria, adicionarMensagemOuvidoria, ouvirTodasOuvidorias } from "./services/dataService";
 
 // ── DADOS ────────────────────────────────────────────────────────────────────
 const APP_VERSION = "v2.1";
@@ -725,17 +725,19 @@ function ReadField({label, value, color}){
 const OUVIDORIA_ASSUNTOS = ["Atendimento","Estrutura / Equipamentos","Higiene","Treino / Prescrição","Financeiro / Mensalidade","Sugestão","Outro"];
 
 function OuvidoriaView({aluno, prof}){
-  const STORAGE_KEY = `fittrack_ouvidoria_${aluno.id}`;
-
   const [assunto,setAssunto]   = useState(OUVIDORIA_ASSUNTOS[0]);
   const [mensagem,setMensagem] = useState("");
   const [enviado,setEnviado]   = useState(false);
-  const [historico,setHistorico] = useState(()=>{
-    try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]"); }
-    catch(e){ return []; }
-  });
+  const [enviando,setEnviando] = useState(false);
+  const [historico,setHistorico] = useState([]);
 
-  const salvar = ()=>{
+  // Mantem o historico de mensagens sincronizado em tempo real com o Firestore.
+  useEffect(()=>{
+    const unsub = ouvirOuvidoria(aluno.id, (msgs)=>setHistorico(msgs));
+    return ()=>unsub();
+  }, [aluno.id]);
+
+  const salvar = async ()=>{
     if(!mensagem.trim()) return;
     const novo = {
       id: Date.now(),
@@ -745,11 +747,16 @@ function OuvidoriaView({aluno, prof}){
       status:"Enviado",
     };
     const novo_hist = [novo, ...historico];
-    setHistorico(novo_hist);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(novo_hist));
-    setMensagem("");
-    setEnviado(true);
-    setTimeout(()=>setEnviado(false), 3000);
+    setEnviando(true);
+    try{
+      await adicionarMensagemOuvidoria(aluno.id, novo_hist);
+      setMensagem("");
+      setEnviado(true);
+      setTimeout(()=>setEnviado(false), 3000);
+    }catch(e){
+      console.error("Erro ao enviar mensagem de ouvidoria:", e);
+    }
+    setEnviando(false);
   };
 
   const enviarWhatsApp = ()=>{
@@ -798,10 +805,10 @@ function OuvidoriaView({aluno, prof}){
 
         {/* Botões */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <button onClick={salvar} disabled={!mensagem.trim()}
-            style={{...css.btnA,padding:"11px",opacity:mensagem.trim()?1:.5,
+          <button onClick={salvar} disabled={!mensagem.trim()||enviando}
+            style={{...css.btnA,padding:"11px",opacity:(mensagem.trim()&&!enviando)?1:.5,
               background:enviado?"linear-gradient(135deg,#059669,#34d399)":"linear-gradient(135deg,#f97316,#e05a00)"}}>
-            {enviado?"✓ Registrado!":"Registrar"}
+            {enviado?"✓ Registrado!":(enviando?"Enviando...":"Registrar")}
           </button>
           <button onClick={enviarWhatsApp} disabled={!mensagem.trim()}
             style={{width:"100%",background:mensagem.trim()?"linear-gradient(135deg,#25d366,#128c7e)":"#1c1c1c",
@@ -3465,6 +3472,18 @@ export default function App(){
     return ()=>unsubPagamentos();
   }, [authCarregando, currentUser?.id]);
 
+  const [ouvidorias,setOuvidorias]=useState({});
+
+  // Mantem todas as ouvidorias sincronizadas em tempo real (necessario para
+  // a tela de Ouvidoria Admin, que mostra mensagens de todos os alunos juntas).
+  useEffect(()=>{
+    if(authCarregando) return;
+    if(!currentUser) return;
+
+    const unsubOuvidorias = ouvirTodasOuvidorias((todas)=>setOuvidorias(todas));
+    return ()=>unsubOuvidorias();
+  }, [authCarregando, currentUser?.id]);
+
   const [backupTexto,setBackupTexto]=useState(null);
   const [modalWhatsAppAluno,setModalWhatsAppAluno]=useState(null);
   const [envioMassaAberto,setEnvioMassaAberto]=useState(false);
@@ -3506,18 +3525,13 @@ export default function App(){
   // ── BACKUP: exportar e importar todos os dados do app ─────────────────────
   const exportarBackup = ()=>{
     try{
-      const ouvidorias = {};
-      alunos.forEach(a=>{
-        const key = `fittrack_ouvidoria_${a.id}`;
-        const raw = localStorage.getItem(key);
-        if(raw) ouvidorias[a.id] = JSON.parse(raw);
-      });
       const backup = {
-        versao: "1.0",
+        versao: "2.0",
         dataExportacao: new Date().toISOString(),
         alunos,
         profissionais,
         agendas,
+        pagamentos,
         ouvidorias,
       };
       const jsonStr = JSON.stringify(backup, null, 2);
@@ -4084,10 +4098,8 @@ export default function App(){
   if(view==="profissionais"){
     // Conta mensagens não lidas de todos os alunos
     const totalMsgs = alunos.reduce((acc,a)=>{
-      try{
-        const msgs=JSON.parse(localStorage.getItem(`fittrack_ouvidoria_${a.id}`)||"[]");
-        return acc+msgs.filter(m=>m.status==="Enviado").length;
-      }catch(e){return acc;}
+      const msgs = ouvidorias[a.id] || [];
+      return acc+msgs.filter(m=>m.status==="Enviado").length;
     },0);
 
     return(
@@ -4363,24 +4375,23 @@ export default function App(){
 
   // ── TELA OUVIDORIA ADMIN ──────────────────────────────────────────────────
   if(view==="ouvidoriaAdmin"){
-    // Coleta todas as mensagens de todos os alunos
+    // Coleta todas as mensagens de todos os alunos, a partir do estado ja
+    // sincronizado em tempo real com o Firestore.
     const todasMsgs = alunos.flatMap(a=>{
-      try{
-        const msgs=JSON.parse(localStorage.getItem(`fittrack_ouvidoria_${a.id}`)||"[]");
-        return msgs.map(m=>({...m, alunoId:a.id, alunoNome:a.nome, alunoFoto:a.foto}));
-      }catch(e){return [];}
+      const msgs = ouvidorias[a.id] || [];
+      return msgs.map(m=>({...m, alunoId:a.id, alunoNome:a.nome, alunoFoto:a.foto}));
     }).sort((a,b)=>new Date(b.data+' '+b.hora)-new Date(a.data+' '+a.hora));
 
     const naoLidas=todasMsgs.filter(m=>m.status==="Enviado").length;
 
-    const atualizarStatus=(alunoId,msgId,novoStatus)=>{
+    const atualizarStatus=async(alunoId,msgId,novoStatus)=>{
+      const msgs = ouvidorias[alunoId] || [];
+      const updated=msgs.map(m=>m.id===msgId?{...m,status:novoStatus}:m);
       try{
-        const msgs=JSON.parse(localStorage.getItem(`fittrack_ouvidoria_${alunoId}`)||"[]");
-        const updated=msgs.map(m=>m.id===msgId?{...m,status:novoStatus}:m);
-        localStorage.setItem(`fittrack_ouvidoria_${alunoId}`,JSON.stringify(updated));
-        // Força re-render
-        setAlunos(p=>[...p]);
-      }catch(e){}
+        await adicionarMensagemOuvidoria(alunoId, updated);
+      }catch(e){
+        console.error("Erro ao atualizar status da ouvidoria:", e);
+      }
     };
 
     return(
@@ -5057,41 +5068,41 @@ export default function App(){
 
             {/* Mensagens de ouvidoria do aluno */}
             {(()=>{
-              try{
-                const msgs=JSON.parse(localStorage.getItem(`fittrack_ouvidoria_${a.id}`)||"[]");
-                if(!msgs.length) return null;
-                return(
-                  <div style={{...css.card,background:"#0f0a1a",border:"1px solid #6366f130"}}>
-                    <div style={{...css.secHdr,color:"#a78bfa"}}>📣 Ouvidoria — {msgs.length} mensagem{msgs.length!==1?"s":""}</div>
-                    {msgs.map((h,i)=>(
-                      <div key={h.id||i} style={{background:"#121212",border:"1px solid #2a1a08",borderRadius:10,padding:"12px 14px",marginBottom:i<msgs.length-1?8:0}}>
-                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,flexWrap:"wrap",gap:6}}>
-                          <span style={{fontSize:12,fontWeight:700,color:"#a78bfa"}}>{h.assunto}</span>
-                          <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                            <span style={{fontSize:10,color:C.muted}}>{h.data} {h.hora}</span>
-                            <select
-                              value={h.status}
-                              onChange={e=>{
-                                try{
-                                  const all=JSON.parse(localStorage.getItem(`fittrack_ouvidoria_${a.id}`)||"[]");
-                                  all[i]={...all[i],status:e.target.value};
-                                  localStorage.setItem(`fittrack_ouvidoria_${a.id}`,JSON.stringify(all));
-                                }catch(err){}
-                              }}
-                              style={{...css.input,padding:"3px 8px",fontSize:16,width:"auto",
-                                color:h.status==="Respondido"?C.green:h.status==="Em analise"?"#fbbf24":C.muted}}>
-                              <option>Enviado</option>
-                              <option>Em analise</option>
-                              <option>Respondido</option>
-                            </select>
-                          </div>
+              const msgs = ouvidorias[a.id] || [];
+              if(!msgs.length) return null;
+              return(
+                <div style={{...css.card,background:"#0f0a1a",border:"1px solid #6366f130"}}>
+                  <div style={{...css.secHdr,color:"#a78bfa"}}>📣 Ouvidoria — {msgs.length} mensagem{msgs.length!==1?"s":""}</div>
+                  {msgs.map((h,i)=>(
+                    <div key={h.id||i} style={{background:"#121212",border:"1px solid #2a1a08",borderRadius:10,padding:"12px 14px",marginBottom:i<msgs.length-1?8:0}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,flexWrap:"wrap",gap:6}}>
+                        <span style={{fontSize:12,fontWeight:700,color:"#a78bfa"}}>{h.assunto}</span>
+                        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                          <span style={{fontSize:10,color:C.muted}}>{h.data} {h.hora}</span>
+                          <select
+                            value={h.status}
+                            onChange={async e=>{
+                              const all = [...msgs];
+                              all[i]={...all[i],status:e.target.value};
+                              try{
+                                await adicionarMensagemOuvidoria(a.id, all);
+                              }catch(err){
+                                console.error("Erro ao atualizar status:", err);
+                              }
+                            }}
+                            style={{...css.input,padding:"3px 8px",fontSize:16,width:"auto",
+                              color:h.status==="Respondido"?C.green:h.status==="Em analise"?"#fbbf24":C.muted}}>
+                            <option>Enviado</option>
+                            <option>Em analise</option>
+                            <option>Respondido</option>
+                          </select>
                         </div>
-                        <div style={{fontSize:12,color:C.text,lineHeight:1.6}}>{h.mensagem}</div>
                       </div>
-                    ))}
-                  </div>
-                );
-              }catch(e){return null;}
+                      <div style={{fontSize:12,color:C.text,lineHeight:1.6}}>{h.mensagem}</div>
+                    </div>
+                  ))}
+                </div>
+              );
             })()}
           </>}
 
