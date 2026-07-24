@@ -2425,7 +2425,11 @@ function PlanilhaMesView({prof, mesAtivo, linhas, onUpdateLinhas, onVoltar, pode
   const [confirmarRemover,setConfirmarRemover] = useState(null); // idx da linha a remover
 
   const atualizarLinha = (idx, campo, valor)=>{
-    if(!podeEditar) return;
+    console.log("[DIAGNOSTICO] atualizarLinha chamado", {idx, campo, valor, podeEditar});
+    if(!podeEditar){
+      console.log("[DIAGNOSTICO] atualizarLinha BLOQUEADO: podeEditar é", podeEditar);
+      return;
+    }
     const novasLinhas = linhas.map((l,i)=> i===idx ? {...l,[campo]:valor} : l);
     onUpdateLinhas(novasLinhas);
   };
