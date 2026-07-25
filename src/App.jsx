@@ -759,17 +759,6 @@ function OuvidoriaView({aluno, prof}){
     setEnviando(false);
   };
 
-  const enviarWhatsApp = ()=>{
-    const profTel = (prof?.telefone||"").replace(/\D/g,"");
-    // Número fixo da UP Fitness — pode ser configurado
-    const tel = profTel || "";
-    const msg = `📣 *Ouvidoria UP Fitness*\n\n*Aluno:* ${aluno.nome}\n*Assunto:* ${assunto}\n\n${mensagem}`;
-    const url = tel
-      ? `https://wa.me/55${tel}?text=${encodeURIComponent(msg)}`
-      : `https://wa.me/?text=${encodeURIComponent(msg)}`;
-    window.open(url,"_blank");
-  };
-
   const statusColor = (s) => s==="Respondido"?C.green:s==="Em analise"?"#fbbf24":C.muted;
 
   return(
@@ -803,21 +792,12 @@ function OuvidoriaView({aluno, prof}){
           />
         </div>
 
-        {/* Botões */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <button onClick={salvar} disabled={!mensagem.trim()||enviando}
-            style={{...css.btnA,padding:"11px",opacity:(mensagem.trim()&&!enviando)?1:.5,
-              background:enviado?"linear-gradient(135deg,#059669,#34d399)":"linear-gradient(135deg,#f97316,#e05a00)"}}>
-            {enviado?"✓ Registrado!":(enviando?"Enviando...":"Registrar")}
-          </button>
-          <button onClick={enviarWhatsApp} disabled={!mensagem.trim()}
-            style={{width:"100%",background:mensagem.trim()?"linear-gradient(135deg,#25d366,#128c7e)":"#1c1c1c",
-              color:mensagem.trim()?"#fff":C.muted,border:"none",borderRadius:9,padding:"11px",
-              fontWeight:700,fontSize:13,cursor:mensagem.trim()?"pointer":"default",
-              fontFamily:"Inter,sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-            <span>📱</span> WhatsApp
-          </button>
-        </div>
+        {/* Botão */}
+        <button onClick={salvar} disabled={!mensagem.trim()||enviando}
+          style={{...css.btnA,width:"100%",padding:"11px",opacity:(mensagem.trim()&&!enviando)?1:.5,
+            background:enviado?"linear-gradient(135deg,#059669,#34d399)":"linear-gradient(135deg,#f97316,#e05a00)"}}>
+          {enviado?"✓ Registrado!":(enviando?"Enviando...":"Registrar")}
+        </button>
       </div>
 
       {/* Histórico */}
@@ -832,6 +812,14 @@ function OuvidoriaView({aluno, prof}){
               </div>
               <div style={{fontSize:12,color:C.text,lineHeight:1.6,marginBottom:6}}>{h.mensagem}</div>
               <div style={{fontSize:10,color:C.muted}}>{h.data} às {h.hora}</div>
+              {h.resposta&&(
+                <div style={{marginTop:10,background:"#0a1a10",border:"1px solid #34d39940",borderRadius:8,padding:"10px 12px"}}>
+                  <div style={{fontSize:10,fontWeight:700,color:"#34d399",textTransform:"uppercase",letterSpacing:.6,marginBottom:4}}>
+                    Resposta da equipe
+                  </div>
+                  <div style={{fontSize:12,color:C.text,lineHeight:1.6}}>{h.resposta}</div>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -3370,6 +3358,54 @@ function GaleriaFotosEvolucao({fotos, onUpdateFotos, podeEditar}){
   );
 }
 
+// ── FORMULARIO DE RESPOSTA (Ouvidoria) ────────────────────────────────────
+// Campo compacto para o profissional/admin escrever uma resposta que o
+// aluno ve diretamente na propria aba de Ouvidoria dele no app.
+function RespostaOuvidoriaForm({respostaAtual, onSalvar}){
+  const [editando, setEditando] = useState(false);
+  const [texto, setTexto] = useState(respostaAtual);
+  const [salvando, setSalvando] = useState(false);
+
+  const salvar = async ()=>{
+    if(!texto.trim()) return;
+    setSalvando(true);
+    await onSalvar(texto.trim());
+    setSalvando(false);
+    setEditando(false);
+  };
+
+  if(!editando){
+    return(
+      <button onClick={()=>{ setTexto(respostaAtual); setEditando(true); }}
+        style={{background:"transparent",border:"1px solid #3d2010",color:C.muted,
+          borderRadius:8,padding:"7px 12px",fontWeight:600,fontSize:12,cursor:"pointer",
+          fontFamily:"Inter,sans-serif",marginTop:respostaAtual?0:4}}>
+        {respostaAtual?"✏ Editar resposta":"💬 Responder no app"}
+      </button>
+    );
+  }
+
+  return(
+    <div style={{marginTop:6}}>
+      <textarea
+        value={texto}
+        onChange={e=>setTexto(e.target.value)}
+        placeholder="Escreva a resposta que o aluno vai ver..."
+        rows={3}
+        style={{...css.input,resize:"vertical",marginBottom:8}}
+        autoFocus
+      />
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+        <button onClick={()=>setEditando(false)} style={{...css.btnB,padding:"9px",fontSize:12}}>Cancelar</button>
+        <button onClick={salvar} disabled={!texto.trim()||salvando}
+          style={{...css.btnA,padding:"9px",fontSize:12,opacity:(!texto.trim()||salvando)?.6:1}}>
+          {salvando?"Salvando...":"Salvar resposta"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── APP ───────────────────────────────────────────────────────────────────────
 export default function App(){
   // Detecta se o app foi aberto via link de convite (?token=...) — nesse caso,
@@ -4449,6 +4485,31 @@ export default function App(){
                     {m.mensagem}
                   </div>
 
+                  {/* Resposta ja registrada (se houver) */}
+                  {m.resposta&&(
+                    <div style={{background:"#0a1a10",border:"1px solid #34d39940",borderRadius:8,
+                      padding:"10px 12px",fontSize:13,color:C.text,lineHeight:1.6,marginBottom:10}}>
+                      <div style={{fontSize:10,fontWeight:700,color:"#34d399",textTransform:"uppercase",letterSpacing:.6,marginBottom:4}}>
+                        Resposta da equipe
+                      </div>
+                      {m.resposta}
+                    </div>
+                  )}
+
+                  {/* Campo para escrever/editar a resposta */}
+                  <RespostaOuvidoriaForm
+                    respostaAtual={m.resposta||""}
+                    onSalvar={async(texto)=>{
+                      const msgs = ouvidorias[m.alunoId] || [];
+                      const updated = msgs.map(x=>x.id===m.id?{...x,resposta:texto,status:"Respondido"}:x);
+                      try{
+                        await adicionarMensagemOuvidoria(m.alunoId, updated);
+                      }catch(e){
+                        console.error("Erro ao salvar resposta:", e);
+                      }
+                    }}
+                  />
+
                   {/* Status + ações */}
                   <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                     <select
@@ -4460,23 +4521,6 @@ export default function App(){
                       <option>Em analise</option>
                       <option>Respondido</option>
                     </select>
-                    {/* Responder via WhatsApp */}
-                    {(()=>{
-                      const aluno=alunos.find(a=>a.id===m.alunoId);
-                      const tel=(aluno?.telefone||"").replace(/\D/g,"");
-                      if(!tel) return null;
-                      return(
-                        <button onClick={()=>{
-                          const msg=`Ola ${m.alunoNome.split(" ")[0]}! Recebemos sua mensagem sobre "${m.assunto}" e `;
-                          window.open(`https://wa.me/55${tel}?text=${encodeURIComponent(msg)}`,"_blank");
-                          atualizarStatus(m.alunoId,m.id,"Respondido");
-                        }} style={{background:"linear-gradient(135deg,#25d366,#128c7e)",color:"#fff",
-                          border:"none",borderRadius:8,padding:"7px 12px",fontWeight:700,fontSize:12,
-                          cursor:"pointer",fontFamily:"Inter,sans-serif",display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
-                          <span>📱</span> Responder
-                        </button>
-                      );
-                    })()}
                   </div>
                 </div>
               );
@@ -5098,7 +5142,27 @@ export default function App(){
                           </select>
                         </div>
                       </div>
-                      <div style={{fontSize:12,color:C.text,lineHeight:1.6}}>{h.mensagem}</div>
+                      <div style={{fontSize:12,color:C.text,lineHeight:1.6,marginBottom:8}}>{h.mensagem}</div>
+                      {h.resposta&&(
+                        <div style={{background:"#0a1a10",border:"1px solid #34d39940",borderRadius:8,padding:"10px 12px",marginBottom:8}}>
+                          <div style={{fontSize:10,fontWeight:700,color:"#34d399",textTransform:"uppercase",letterSpacing:.6,marginBottom:4}}>
+                            Resposta da equipe
+                          </div>
+                          <div style={{fontSize:12,color:C.text,lineHeight:1.6}}>{h.resposta}</div>
+                        </div>
+                      )}
+                      <RespostaOuvidoriaForm
+                        respostaAtual={h.resposta||""}
+                        onSalvar={async(texto)=>{
+                          const all = [...msgs];
+                          all[i]={...all[i],resposta:texto,status:"Respondido"};
+                          try{
+                            await adicionarMensagemOuvidoria(a.id, all);
+                          }catch(err){
+                            console.error("Erro ao salvar resposta:", err);
+                          }
+                        }}
+                      />
                     </div>
                   ))}
                 </div>
