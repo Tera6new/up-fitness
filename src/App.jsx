@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { fazerLogin, observarUsuario, fazerLogout, criarConta } from "./services/authService";
-import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia, ouvirTodosPagamentos, atualizarMesPagamento, ouvirOuvidoria, adicionarMensagemOuvidoria, ouvirTodasOuvidorias } from "./services/dataService";
+import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia, ouvirTodosPagamentos, atualizarMesPagamento, ouvirOuvidoria, adicionarMensagemOuvidoria, ouvirTodasOuvidorias, criarConvite, buscarConvite, marcarConvitePreenchido } from "./services/dataService";
 
 // ── DADOS ────────────────────────────────────────────────────────────────────
 const APP_VERSION = "v2.1";
@@ -3416,17 +3416,26 @@ export default function App(){
       return params.get("token");
     }catch(e){ return null; }
   });
-  const [conviteAtual,setConviteAtual]=useState(()=>{
-    if(!tokenConvite) return null;
-    try{
-      const convites=JSON.parse(localStorage.getItem('fittrack_convites')||'{}');
-      const c=convites[tokenConvite];
-      if(!c) return null;
-      if(new Date(c.expiresAt) < new Date()) return {expirado:true};
-      if(c.preenchido) return {jaPreenchido:true};
-      return c;
-    }catch(e){ return null; }
-  });
+  const [conviteAtual,setConviteAtual]=useState(null);
+  const [conviteCarregando,setConviteCarregando]=useState(!!tokenConvite);
+
+  // Busca o convite no Firestore quando o app é aberto via link (?token=...)
+  useEffect(()=>{
+    if(!tokenConvite){ setConviteCarregando(false); return; }
+    (async ()=>{
+      try{
+        const c = await buscarConvite(tokenConvite);
+        if(!c){ setConviteAtual(null); }
+        else if(new Date(c.expiresAt) < new Date()){ setConviteAtual({expirado:true}); }
+        else if(c.preenchido){ setConviteAtual({jaPreenchido:true}); }
+        else{ setConviteAtual(c); }
+      }catch(e){
+        console.error("Erro ao buscar convite:", e);
+        setConviteAtual(null);
+      }
+      setConviteCarregando(false);
+    })();
+  }, [tokenConvite]);
 
   const [currentUser,setCurrentUser]=useState(null);
   const [authCarregando,setAuthCarregando]=useState(true);
@@ -3602,6 +3611,16 @@ export default function App(){
 
   // ── ROTA PUBLICA: formulario de auto-cadastro via link (sem login) ─────────
   if(tokenConvite){
+    if(conviteCarregando){
+      return(
+        <div style={css.app}><GF/>
+          <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
+            <LogoUP size={64}/>
+            <div style={{fontSize:13,color:C.muted}}>Carregando...</div>
+          </div>
+        </div>
+      );
+    }
     if(!conviteAtual){
       return(
         <div style={css.app}><GF/>
@@ -3661,12 +3680,10 @@ export default function App(){
           }
           // Marca o convite como preenchido para nao ser reutilizado
           try{
-            const convites = JSON.parse(localStorage.getItem('fittrack_convites')||'{}');
-            if(convites[tokenConvite]){
-              convites[tokenConvite].preenchido = true;
-              localStorage.setItem('fittrack_convites', JSON.stringify(convites));
-            }
-          }catch(e){}
+            await marcarConvitePreenchido(tokenConvite);
+          }catch(e){
+            console.error("Erro ao marcar convite como preenchido:", e);
+          }
         }}
       />
     );
@@ -3721,18 +3738,21 @@ export default function App(){
     setTransferModal(null);
   };
 
-  const gerarLink=()=>{
+  const gerarLink=async()=>{
     const token = Math.random().toString(36).slice(2)+Date.now().toString(36);
     const url = `${window.location.origin}/formulario?token=${token}`;
-    const convites = JSON.parse(localStorage.getItem('fittrack_convites')||'{}');
-    convites[token] = {
+    const dadosConvite = {
       token, profissionalId: profSelecionado?.id,
       profissionalNome: profSelecionado?.nome,
       nomeAluno: linkNome, emailAluno: linkEmail,
       expiresAt: new Date(Date.now()+72*60*60*1000).toISOString(),
       preenchido: false,
     };
-    localStorage.setItem('fittrack_convites', JSON.stringify(convites));
+    try{
+      await criarConvite(token, dadosConvite);
+    }catch(e){
+      console.error("Erro ao criar convite:", e);
+    }
     setLinkGerado(url);
     return url;
   };
@@ -4701,8 +4721,8 @@ export default function App(){
                   <input style={css.input} type="email" placeholder="aluno@email.com" value={linkEmail} onChange={e=>setLinkEmail(e.target.value)}/>
                 </div>
               </div>
-              <button onClick={()=>{
-                const url = gerarLink();
+              <button onClick={async()=>{
+                const url = await gerarLink();
                 const tel=(linkTelefone||"").replace(/\D/g,"");
                 if(tel){
                   const msg=encodeURIComponent(`Ola${linkNome?" "+linkNome:""}! Acesse o link abaixo para preencher seu cadastro na UP Fitness:\n\n${url}\n\nO link expira em 72 horas.`);
