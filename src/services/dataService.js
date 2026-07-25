@@ -100,6 +100,12 @@ export async function atualizarHorariosPorDia(profissionalId, dia, novaLista) {
   await setDoc(ref, { horariosPorDia }, { merge: true });
 }
 
+// Sobrescreve o documento inteiro de uma agenda (usado na restauração de
+// backup, onde queremos substituir tudo, não mesclar campo por campo).
+export async function salvarAgendaCompleta(profissionalId, dadosCompletos) {
+  await setDoc(doc(db, "agendas", profissionalId), dadosCompletos);
+}
+
 // ── Pagamentos ───────────────────────────────────────────────────────────
 export function ouvirPagamentos(profissionalId, callback) {
   return onSnapshot(doc(db, "pagamentos", profissionalId), (snap) => {
@@ -121,6 +127,12 @@ export function ouvirTodosPagamentos(callback) {
 export async function atualizarMesPagamento(profissionalId, mes, linhas) {
   const ref = doc(db, "pagamentos", profissionalId);
   await setDoc(ref, { [mes]: linhas }, { merge: true });
+}
+
+// Sobrescreve o documento inteiro de pagamentos de um profissional (usado
+// na restauração de backup, substituindo todos os meses de uma vez).
+export async function salvarPagamentosCompleto(profissionalId, dadosCompletos) {
+  await setDoc(doc(db, "pagamentos", profissionalId), dadosCompletos);
 }
 
 // ── Convites (link de auto-cadastro) ────────────────────────────────────

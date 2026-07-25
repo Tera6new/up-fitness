@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { fazerLogin, observarUsuario, fazerLogout, criarConta } from "./services/authService";
-import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia, ouvirTodosPagamentos, atualizarMesPagamento, ouvirOuvidoria, adicionarMensagemOuvidoria, ouvirTodasOuvidorias, criarConvite, buscarConvite, marcarConvitePreenchido } from "./services/dataService";
+import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia, salvarAgendaCompleta, ouvirTodosPagamentos, atualizarMesPagamento, salvarPagamentosCompleto, ouvirOuvidoria, adicionarMensagemOuvidoria, ouvirTodasOuvidorias, criarConvite, buscarConvite, marcarConvitePreenchido } from "./services/dataService";
 
 // ── DADOS ────────────────────────────────────────────────────────────────────
 const APP_VERSION = "v2.1";
@@ -3541,6 +3541,7 @@ export default function App(){
   const [importTexto,setImportTexto]=useState("");
   const [importErro,setImportErro]=useState("");
   const [importSucesso,setImportSucesso]=useState("");
+  const [importando,setImportando]=useState(false);
   const [agendas,setAgendas]=useState({});
 
   // Mantem todas as agendas sincronizadas em tempo real com o Firestore.
@@ -3589,15 +3590,77 @@ export default function App(){
     }
   };
 
-  const restaurarBackupDeJson = (jsonStr)=>{
+  const restaurarBackupDeJson = async (jsonStr)=>{
     setImportErro("");
     setImportSucesso("");
-    // AVISO: esta função ainda é da era localStorage e não grava no Firestore.
-    // Com o app conectado ao Firebase, restaurar um backup requer regravar
-    // cada aluno/profissional/agenda no banco (não apenas no estado local).
-    // Desativada temporariamente até termos uma versão que salve no Firestore.
-    setImportErro("A restauração de backup ainda não foi adaptada para o Firebase. Esta função será reativada em uma próxima etapa da migração.");
-    return false;
+    try{
+      const texto = (jsonStr||"").trim();
+      if(!texto){
+        setImportErro("O campo está vazio. Cole o conteúdo do backup antes de restaurar.");
+        return false;
+      }
+      let backup;
+      try{
+        backup = JSON.parse(texto);
+      }catch(parseErr){
+        setImportErro("Não foi possível interpretar o texto como JSON válido. Verifique se colou o conteúdo completo (do '{' inicial até o '}' final), sem cortar nenhuma parte. Detalhe: "+parseErr.message);
+        return false;
+      }
+      if(!backup || typeof backup!=="object"){
+        setImportErro("O conteúdo colado não é um backup válido.");
+        return false;
+      }
+      if(!Array.isArray(backup.alunos)){
+        setImportErro("O backup não contém a lista de alunos (campo 'alunos' ausente ou inválido). Confirme que colou o backup correto.");
+        return false;
+      }
+      if(!Array.isArray(backup.profissionais)){
+        setImportErro("O backup não contém a lista de profissionais (campo 'profissionais' ausente ou inválido).");
+        return false;
+      }
+
+      setImportando(true);
+
+      // Grava cada aluno e profissional de volta no Firestore (um por um).
+      // Usa salvarAluno/salvarProfissional com merge, preservando o id original.
+      for(const a of backup.alunos){
+        if(!a?.id) continue;
+        await salvarAluno(a.id, a);
+      }
+      for(const p of backup.profissionais){
+        if(!p?.id) continue;
+        await salvarProfissional(p.id, p);
+      }
+
+      // Agendas: um documento por profissional
+      if(backup.agendas && typeof backup.agendas==="object"){
+        for(const [profId, dadosAgenda] of Object.entries(backup.agendas)){
+          await salvarAgendaCompleta(profId, dadosAgenda);
+        }
+      }
+
+      // Pagamentos: um documento por profissional
+      if(backup.pagamentos && typeof backup.pagamentos==="object"){
+        for(const [profId, dadosPagamento] of Object.entries(backup.pagamentos)){
+          await salvarPagamentosCompleto(profId, dadosPagamento);
+        }
+      }
+
+      // Ouvidoria: um documento por aluno
+      if(backup.ouvidorias && typeof backup.ouvidorias==="object"){
+        for(const [alunoId, mensagens] of Object.entries(backup.ouvidorias)){
+          await adicionarMensagemOuvidoria(alunoId, mensagens);
+        }
+      }
+
+      setImportando(false);
+      setImportSucesso(`Backup restaurado! ${backup.alunos.length} aluno(s) e ${backup.profissionais.length} profissional(is) gravados no Firebase.`);
+      return true;
+    }catch(err){
+      setImportando(false);
+      setImportErro("Erro inesperado ao restaurar backup: "+err.message);
+      return false;
+    }
   };
 
   const importarBackup = (file)=>{
@@ -4389,15 +4452,16 @@ export default function App(){
 
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               <button onClick={()=>{setImportModalAberto(false);setImportErro("");setImportSucesso("");setImportTexto("");}}
-                style={{...css.btnB,width:"100%",padding:"12px"}}>
+                disabled={importando}
+                style={{...css.btnB,width:"100%",padding:"12px",opacity:importando?.5:1}}>
                 {importSucesso?"Fechar":"Cancelar"}
               </button>
               {!importSucesso&&(
                 <button
-                  disabled={!importTexto.trim()}
+                  disabled={!importTexto.trim()||importando}
                   onClick={()=>restaurarBackupDeJson(importTexto)}
-                  style={{...css.btnA,width:"100%",padding:"12px",opacity:importTexto.trim()?1:.5}}>
-                  Restaurar
+                  style={{...css.btnA,width:"100%",padding:"12px",opacity:(importTexto.trim()&&!importando)?1:.5}}>
+                  {importando?"Restaurando...":"Restaurar"}
                 </button>
               )}
             </div>
