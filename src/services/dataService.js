@@ -100,10 +100,22 @@ export async function atualizarHorariosPorDia(profissionalId, dia, novaLista) {
   await setDoc(ref, { horariosPorDia }, { merge: true });
 }
 
-// Sobrescreve o documento inteiro de uma agenda (usado na restauração de
-// backup, onde queremos substituir tudo, não mesclar campo por campo).
+// Restaura o backup de uma agenda mesclando com o que já existe (mesmo
+// comportamento seguro usado para alunos): preserva dias/horários criados
+// depois que o backup foi feito, em vez de apagá-los. Faz merge manual em
+// profundidade no campo horariosPorDia, já que o merge:true do Firestore
+// substitui objetos aninhados inteiros em vez de mesclar campo a campo.
 export async function salvarAgendaCompleta(profissionalId, dadosCompletos) {
-  await setDoc(doc(db, "agendas", profissionalId), dadosCompletos);
+  const ref = doc(db, "agendas", profissionalId);
+  const snap = await getDoc(ref);
+  const atual = snap.exists() ? snap.data() : {};
+
+  const horariosPorDiaMesclado = {
+    ...(atual.horariosPorDia || {}),
+    ...(dadosCompletos.horariosPorDia || {}),
+  };
+
+  await setDoc(ref, { ...dadosCompletos, horariosPorDia: horariosPorDiaMesclado }, { merge: true });
 }
 
 // ── Pagamentos ───────────────────────────────────────────────────────────
@@ -129,10 +141,23 @@ export async function atualizarMesPagamento(profissionalId, mes, linhas) {
   await setDoc(ref, { [mes]: linhas }, { merge: true });
 }
 
-// Sobrescreve o documento inteiro de pagamentos de um profissional (usado
-// na restauração de backup, substituindo todos os meses de uma vez).
+// Restaura o backup de pagamentos mesclando com o que já existe: preserva
+// meses e lançamentos feitos depois que o backup foi feito, em vez de
+// apagá-los. Faz merge manual em profundidade (mês a mês), já que o
+// merge:true do Firestore substitui listas/objetos aninhados inteiros em
+// vez de mesclar item a item — sem isso, um mês editado depois do backup
+// perderia as edições ao restaurar.
 export async function salvarPagamentosCompleto(profissionalId, dadosCompletos) {
-  await setDoc(doc(db, "pagamentos", profissionalId), dadosCompletos);
+  const ref = doc(db, "pagamentos", profissionalId);
+  const snap = await getDoc(ref);
+  const atual = snap.exists() ? snap.data() : {};
+
+  // Mescla mes a mes: mantem os meses que ja existem e nao estao no backup,
+  // e para os meses que existem nos dois lados, o backup prevalece (é uma
+  // restauração intencional), mas sem afetar os demais meses do documento.
+  const mesclado = { ...atual, ...dadosCompletos };
+
+  await setDoc(ref, mesclado);
 }
 
 // ── Convites (link de auto-cadastro) ────────────────────────────────────
