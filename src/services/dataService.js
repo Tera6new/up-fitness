@@ -110,12 +110,31 @@ export async function salvarAgendaCompleta(profissionalId, dadosCompletos) {
   const snap = await getDoc(ref);
   const atual = snap.exists() ? snap.data() : {};
 
-  const horariosPorDiaMesclado = {
-    ...(atual.horariosPorDia || {}),
-    ...(dadosCompletos.horariosPorDia || {}),
+  // Mescla horariosPorDia dia a dia, e dentro de cada dia, mescla a LISTA de
+  // horarios (nao so o array inteiro) — preserva horarios adicionados depois
+  // do backup, mesmo em dias que ja existiam no backup.
+  const diasAtuais = atual.horariosPorDia || {};
+  const diasBackup = dadosCompletos.horariosPorDia || {};
+  const todosDias = new Set([...Object.keys(diasAtuais), ...Object.keys(diasBackup)]);
+  const horariosPorDiaMesclado = {};
+  for (const dia of todosDias) {
+    const horariosAtuais = diasAtuais[dia] || [];
+    const horariosBackup = diasBackup[dia] || [];
+    // Uniao dos dois conjuntos de horarios, sem duplicar
+    const uniao = Array.from(new Set([...horariosBackup, ...horariosAtuais]));
+    horariosPorDiaMesclado[dia] = uniao.sort((a, b) => (parseInt(a) || 0) - (parseInt(b) || 0));
+  }
+
+  // Mescla o documento inteiro: comeca com o que ja existe (atual), depois
+  // sobrepoe com o que veio do backup (dadosCompletos) — preserva celulas
+  // (ex: Segunda_18H_0) criadas depois do backup.
+  const documentoMesclado = {
+    ...atual,
+    ...dadosCompletos,
+    horariosPorDia: horariosPorDiaMesclado,
   };
 
-  await setDoc(ref, { ...dadosCompletos, horariosPorDia: horariosPorDiaMesclado }, { merge: true });
+  await setDoc(ref, documentoMesclado);
 }
 
 // ── Pagamentos ───────────────────────────────────────────────────────────
@@ -141,21 +160,37 @@ export async function atualizarMesPagamento(profissionalId, mes, linhas) {
   await setDoc(ref, { [mes]: linhas }, { merge: true });
 }
 
-// Restaura o backup de pagamentos mesclando com o que já existe: preserva
-// meses e lançamentos feitos depois que o backup foi feito, em vez de
-// apagá-los. Faz merge manual em profundidade (mês a mês), já que o
-// merge:true do Firestore substitui listas/objetos aninhados inteiros em
-// vez de mesclar item a item — sem isso, um mês editado depois do backup
-// perderia as edições ao restaurar.
+// Restaura o backup de pagamentos mesclando com o que já existe, inclusive
+// linha a linha dentro de cada mês: preserva lançamentos feitos depois do
+// backup, mesmo quando o mês já existia no backup. Usa o campo `id` de cada
+// linha (aluno_X ou manual_timestamp) para identificar duplicatas — quando
+// uma linha existe nos dois lados, o backup prevalece (é uma restauração
+// intencional daquele lançamento específico); linhas que só existem no
+// estado atual (criadas depois do backup) são preservadas.
 export async function salvarPagamentosCompleto(profissionalId, dadosCompletos) {
   const ref = doc(db, "pagamentos", profissionalId);
   const snap = await getDoc(ref);
   const atual = snap.exists() ? snap.data() : {};
 
-  // Mescla mes a mes: mantem os meses que ja existem e nao estao no backup,
-  // e para os meses que existem nos dois lados, o backup prevalece (é uma
-  // restauração intencional), mas sem afetar os demais meses do documento.
-  const mesclado = { ...atual, ...dadosCompletos };
+  const todosMeses = new Set([...Object.keys(atual), ...Object.keys(dadosCompletos)]);
+  const mesclado = {};
+
+  for (const mes of todosMeses) {
+    const linhasAtuais = Array.isArray(atual[mes]) ? atual[mes] : null;
+    const linhasBackup = Array.isArray(dadosCompletos[mes]) ? dadosCompletos[mes] : null;
+
+    if (linhasAtuais && linhasBackup) {
+      // Mescla linha a linha pelo id: backup prevalece para linhas em comum,
+      // linhas so presentes no estado atual (novas) sao preservadas.
+      const idsNoBackup = new Set(linhasBackup.map((l) => l.id));
+      const linhasNovasPreservadas = linhasAtuais.filter((l) => !idsNoBackup.has(l.id));
+      mesclado[mes] = [...linhasBackup, ...linhasNovasPreservadas];
+    } else {
+      // Mes so existe em um dos lados: usa o que tiver (backup tem prioridade
+      // se ambos existirem mas um nao for array valido).
+      mesclado[mes] = linhasBackup || linhasAtuais || [];
+    }
+  }
 
   await setDoc(ref, mesclado);
 }
