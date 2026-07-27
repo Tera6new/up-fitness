@@ -2,8 +2,8 @@
 // Substitua os valores abaixo pelas suas chaves reais do Firebase Console
 // (Configurações do projeto → Geral → Seus apps → SDK do Firebase)
 
-import { initializeApp, getApps } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { initializeApp } from "firebase/app";
+import { getAuth, initializeAuth, inMemoryPersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -25,8 +25,17 @@ export default app;
 // O Firebase Authentication troca automaticamente a sessão ativa para a
 // conta recém-criada quando usamos createUserWithEmailAndPassword. Isso faz
 // com que o Admin seja "deslogado" sem perceber ao cadastrar um novo
-// profissional. Para evitar isso, criamos a conta numa instância separada
-// do Firebase, que não interfere na sessão principal do usuário logado.
+// profissional.
+//
+// IMPORTANTE: por padrão, getAuth() persiste a sessão no localStorage do
+// navegador — que é compartilhado entre instâncias do Firebase no mesmo
+// domínio, mesmo com nomes de "app" diferentes. Por isso, criar uma conta
+// na instância secundária ainda sobrescrevia a sessão principal. A correção
+// é usar initializeAuth com persistência SOMENTE EM MEMÓRIA nessa instância
+// secundária — assim ela nunca grava nada no localStorage compartilhado,
+// ficando de fato isolada da sessão do Admin.
 const appSecundaria = initializeApp(firebaseConfig, "app-criacao-contas");
-export const authSecundaria = getAuth(appSecundaria);
+export const authSecundaria = initializeAuth(appSecundaria, {
+  persistence: inMemoryPersistence,
+});
 
