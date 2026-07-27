@@ -611,9 +611,18 @@ function ModalEditProf({prof, currentUserRole, onSave, onClose, onExcluir}){
       <div style={{position:"fixed",inset:0,background:"#000000cc",display:"flex",alignItems:"center",justifyContent:"center",zIndex:500,padding:16}}>
         <div style={{background:C.card,border:"1px solid #7f1d1d60",borderRadius:16,padding:24,width:"100%",maxWidth:400}}>
           <div style={{fontWeight:800,fontSize:17,marginBottom:8,color:"#f87171"}}>Excluir profissional?</div>
-          <p style={{color:C.muted,fontSize:13,lineHeight:1.6,marginBottom:20}}>
+          <p style={{color:C.muted,fontSize:13,lineHeight:1.6,marginBottom:14}}>
             Tem certeza que deseja excluir <strong style={{color:C.text}}>{prof.nome}</strong>? Essa ação não pode ser desfeita. Os alunos vinculados a esse profissional não serão excluídos, mas ficarão sem profissional responsável até serem transferidos.
           </p>
+          <div style={{background:"#1a1008",border:"1px solid "+C.accent+"40",borderRadius:10,padding:"12px 14px",marginBottom:20}}>
+            <div style={{fontSize:12,color:C.text,lineHeight:1.6}}>
+              ⚠ O e-mail <strong>{prof.email||"deste profissional"}</strong> continuará reservado no sistema de login e não poderá ser reutilizado para cadastrar outro profissional. Para liberá-lo, é necessário removê-lo manualmente em:
+            </div>
+            <a href="https://console.firebase.google.com/project/up-fitness-01/authentication/users" target="_blank" rel="noopener noreferrer"
+              style={{display:"inline-block",marginTop:8,fontSize:12,color:C.accent,fontWeight:700,textDecoration:"underline"}}>
+              Firebase Console → Authentication → Users →
+            </a>
+          </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <button onClick={()=>setConfirmarExclusao(false)} style={{...css.btnB,width:"100%",padding:"11px"}}>Cancelar</button>
             <button onClick={()=>onExcluir(prof.id)} style={{...css.btnDel,width:"100%",padding:"11px"}}>Excluir</button>

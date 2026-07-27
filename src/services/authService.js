@@ -12,7 +12,7 @@ import { auth, authSecundaria } from "../firebase";
 // Traduz mensagens de erro comuns do Firebase Auth para português
 function traduzErro(codigo) {
   const mapa = {
-    "auth/email-already-in-use": "Este e-mail já está cadastrado.",
+    "auth/email-already-in-use": "Este e-mail já está cadastrado. Se você excluiu um profissional recentemente com esse e-mail, ele continua reservado no sistema de login — remova-o em Firebase Console → Authentication → Users para liberá-lo, ou use outro e-mail.",
     "auth/invalid-email": "E-mail inválido.",
     "auth/weak-password": "A senha deve ter pelo menos 6 caracteres.",
     "auth/user-not-found": "E-mail não encontrado.",
