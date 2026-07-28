@@ -2407,6 +2407,7 @@ function montarLinhasIniciais(prof, alunos){
       plano: a.plano||"",
       valor: a.valorMensalidade||"",
       pago: false,
+      editadoManualmente: false,
     }));
 }
 
@@ -2418,8 +2419,24 @@ function montarLinhasIniciais(prof, alunos){
 // intactas — a transferencia nunca apaga lancamentos ja feitos.
 function mesclarLinhasComCarteira(linhasSalvas, prof, alunos){
   const base = linhasSalvas || [];
-  const idsJaNaPlanilha = new Set(base.filter(l=>l.alunoId).map(l=>l.alunoId));
   const alunosDaCarteira = alunos.filter(a=>a.profissionalId===prof.id);
+  const alunosPorId = {};
+  alunosDaCarteira.forEach(a=>{ alunosPorId[a.id]=a; });
+
+  // Linhas ja existentes: se ainda nao foram editadas manualmente na
+  // planilha (editadoManualmente !== true), continuam puxando o plano/valor
+  // mais recente da ficha do aluno. Assim que o profissional editar direto
+  // na planilha (ex: aplicar um desconto), a linha fica "travada" naquele
+  // valor e para de seguir a ficha — ate o mes seguinte, quando uma nova
+  // linha e criada do zero a partir da ficha novamente.
+  const linhasAtualizadas = base.map(l=>{
+    if(!l.alunoId || l.editadoManualmente) return l;
+    const aluno = alunosPorId[l.alunoId];
+    if(!aluno) return l;
+    return { ...l, nome: aluno.nome, plano: aluno.plano||"", valor: aluno.valorMensalidade||"" };
+  });
+
+  const idsJaNaPlanilha = new Set(linhasAtualizadas.filter(l=>l.alunoId).map(l=>l.alunoId));
   const novasLinhas = alunosDaCarteira
     .filter(a=>!idsJaNaPlanilha.has(a.id))
     .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'))
@@ -2430,8 +2447,9 @@ function mesclarLinhasComCarteira(linhasSalvas, prof, alunos){
       plano: a.plano||"",
       valor: a.valorMensalidade||"",
       pago: false,
+      editadoManualmente: false,
     }));
-  return novasLinhas.length>0 ? [...base, ...novasLinhas] : base;
+  return [...linhasAtualizadas, ...novasLinhas];
 }
 
 // Tela da planilha propriamente dita, para um mes especifico ja selecionado
@@ -2440,7 +2458,16 @@ function PlanilhaMesView({prof, mesAtivo, linhas, onUpdateLinhas, onVoltar, pode
 
   const atualizarLinha = (idx, campo, valor)=>{
     if(!podeEditar) return;
-    const novasLinhas = linhas.map((l,i)=> i===idx ? {...l,[campo]:valor} : l);
+    // Editar plano ou valor diretamente na planilha "trava" a linha: ela
+    // para de seguir automaticamente o que esta na ficha do aluno (permite
+    // aplicar um desconto pontual naquele mes especifico, por exemplo).
+    const camposQueTravam = ["plano","valor"];
+    const novasLinhas = linhas.map((l,i)=>{
+      if(i!==idx) return l;
+      const atualizada = {...l,[campo]:valor};
+      if(camposQueTravam.includes(campo)) atualizada.editadoManualmente = true;
+      return atualizada;
+    });
     onUpdateLinhas(novasLinhas);
   };
 
@@ -2607,18 +2634,20 @@ function PagamentosView({prof, pagamentosDoProf, alunos, onUpdateMes, onVoltar, 
   const linhasSalvas = pagamentosDoProf?.[mesAtivo];
   const linhas = mesclarLinhasComCarteira(linhasSalvas, prof, alunos);
 
-  // Se a mesclagem gerou linhas novas (alunos que ainda nao tinham linha na
-  // planilha), salva automaticamente no Firestore. Sem isso, a linha calculada
-  // so existe visualmente naquela sessao — se ninguem editar essa linha
-  // especifica antes da pagina recarregar, o aluno "some" da planilha porque
-  // nunca foi persistido de verdade.
+  // Salva automaticamente no Firestore sempre que a mesclagem gerar uma
+  // diferença real em relação ao que ja estava salvo — seja por linhas novas
+  // (aluno sem linha ainda) ou por linhas existentes que foram atualizadas
+  // com o plano/valor mais recente da ficha (enquanto nao editadas manualmente
+  // na planilha). Sem isso, essas mudanças calculadas ficariam so na tela,
+  // sem persistir de verdade.
   useEffect(()=>{
     if(!podeEditar) return;
-    const qtdSalva = (linhasSalvas||[]).length;
-    if(linhas.length > qtdSalva){
+    const linhasJson = JSON.stringify(linhas);
+    const salvasJson = JSON.stringify(linhasSalvas||[]);
+    if(linhasJson !== salvasJson){
       onUpdateMes(mesAtivo, linhas);
     }
-  }, [linhas.length]);
+  }, [JSON.stringify(linhas)]);
 
   // ── Busca: selecao de mes dentro de um ano ──
   if(buscaAberta && anoBuscaAtivo){
