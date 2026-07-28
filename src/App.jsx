@@ -2607,6 +2607,19 @@ function PagamentosView({prof, pagamentosDoProf, alunos, onUpdateMes, onVoltar, 
   const linhasSalvas = pagamentosDoProf?.[mesAtivo];
   const linhas = mesclarLinhasComCarteira(linhasSalvas, prof, alunos);
 
+  // Se a mesclagem gerou linhas novas (alunos que ainda nao tinham linha na
+  // planilha), salva automaticamente no Firestore. Sem isso, a linha calculada
+  // so existe visualmente naquela sessao — se ninguem editar essa linha
+  // especifica antes da pagina recarregar, o aluno "some" da planilha porque
+  // nunca foi persistido de verdade.
+  useEffect(()=>{
+    if(!podeEditar) return;
+    const qtdSalva = (linhasSalvas||[]).length;
+    if(linhas.length > qtdSalva){
+      onUpdateMes(mesAtivo, linhas);
+    }
+  }, [linhas.length]);
+
   // ── Busca: selecao de mes dentro de um ano ──
   if(buscaAberta && anoBuscaAtivo){
     const mesesDoAno = porAno[anoBuscaAtivo] || [];
