@@ -140,17 +140,18 @@ function classRCQ(r, sexo, idade){
   const v = parseFloat(r);
   const sx = sexo==="Masculino" ? "Masculino" : "Feminino"; // fallback seguro
   const idadeNum = parseInt(idade);
+  const DEBUG = ` [v=${v} sx=${sx} idadeRaw=${JSON.stringify(idade)} idadeNum=${idadeNum}]`;
 
   // Sem idade valida: mantem um fallback simples (mesma logica generica de antes)
   if(!idadeNum || isNaN(idadeNum)){
     if(sx==="Masculino"){
-      if(v<0.90) return {label:"Baixo risco", color:"#34d399"};
-      if(v<1.00) return {label:"Risco moderado", color:"#fbbf24"};
-      return {label:"Alto risco", color:"#f87171"};
+      if(v<0.90) return {label:"Baixo risco"+DEBUG, color:"#34d399"};
+      if(v<1.00) return {label:"Risco moderado"+DEBUG, color:"#fbbf24"};
+      return {label:"Alto risco"+DEBUG, color:"#f87171"};
     } else {
-      if(v<0.80) return {label:"Baixo risco", color:"#34d399"};
-      if(v<0.86) return {label:"Risco moderado", color:"#fbbf24"};
-      return {label:"Alto risco", color:"#f87171"};
+      if(v<0.80) return {label:"Baixo risco"+DEBUG, color:"#34d399"};
+      if(v<0.86) return {label:"Risco moderado"+DEBUG, color:"#fbbf24"};
+      return {label:"Alto risco"+DEBUG, color:"#f87171"};
     }
   }
 
@@ -158,9 +159,9 @@ function classRCQ(r, sexo, idade){
   if(idadeNum>=10 && idadeNum<=20){
     const tabela = RCQ_TABELA_JOVEM[sx];
     const faixa = tabela.find(f=>idadeNum>=f.min && idadeNum<=f.max) || tabela[tabela.length-1];
-    if(v<faixa.baixo) return {label:"Baixo risco", color:"#34d399"};
-    if(v<faixa.alto)  return {label:"Risco moderado", color:"#fbbf24"};
-    return {label:"Alto risco", color:"#f87171"};
+    if(v<faixa.baixo) return {label:"Baixo risco"+DEBUG, color:"#34d399"};
+    if(v<faixa.alto)  return {label:"Risco moderado"+DEBUG, color:"#fbbf24"};
+    return {label:"Alto risco"+DEBUG, color:"#f87171"};
   }
 
   // 20 a 69 anos (e 70+ usando a ultima faixa, 60-69): tabela adulta completa
@@ -169,14 +170,14 @@ function classRCQ(r, sexo, idade){
     const faixa = idadeNum<=69
       ? (tabela.find(f=>idadeNum>=f.min && idadeNum<=f.max) || tabela[tabela.length-1])
       : tabela[tabela.length-1]; // 70+ usa a faixa de 60-69 anos
-    if(v<faixa.baixo)    return {label:"Baixo risco", color:"#34d399"};
-    if(v<=faixa.moderado)return {label:"Risco moderado", color:"#fbbf24"};
-    if(v<=faixa.alto)    return {label:"Alto risco", color:"#f87171"};
-    return {label:"Risco muito alto", color:"#dc2626"};
+    if(v<faixa.baixo)    return {label:"Baixo risco"+DEBUG, color:"#34d399"};
+    if(v<=faixa.moderado)return {label:"Risco moderado"+DEBUG, color:"#fbbf24"};
+    if(v<=faixa.alto)    return {label:"Alto risco"+DEBUG, color:"#f87171"};
+    return {label:"Risco muito alto"+DEBUG, color:"#dc2626"};
   }
 
   // Menor que 10 anos: fora do escopo das tabelas de referência
-  return {label:"Fora da faixa de referência", color:"#c2cdd8"};
+  return {label:"Fora da faixa de referência"+DEBUG, color:"#c2cdd8"};
 }
 // PA: até 120/80 = Normal (inclusive)
 function classPA(p){
