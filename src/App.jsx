@@ -93,11 +93,90 @@ function classIMC(v){
   return           {label:"Obesidade",    color:"#f87171"};
 }
 function calcRCQ(c,q){ if(!c||!q)return null; return(c/q).toFixed(2); }
-function classRCQ(r,sx){
-  if(!r)return{label:"--",color:"#c2cdd8"};
-  const v=parseFloat(r),m=sx==="Masculino";
-  if(m){ if(v<0.90)return{label:"Baixo risco",color:"#34d399"}; if(v<1.00)return{label:"Risco moderado",color:"#fbbf24"}; return{label:"Alto risco",color:"#f87171"}; }
-  else { if(v<0.80)return{label:"Baixo risco",color:"#34d399"}; if(v<0.86)return{label:"Risco moderado",color:"#fbbf24"}; return{label:"Alto risco",color:"#f87171"}; }
+
+// Tabela de referência RCQ para adolescentes e jovens (10-20 anos).
+// Adaptado de diretrizes da OMS para uso consultivo.
+const RCQ_TABELA_JOVEM = {
+  Masculino: [
+    { min:10, max:12, baixo:0.81, alto:0.93 },
+    { min:13, max:14, baixo:0.82, alto:0.94 },
+    { min:15, max:16, baixo:0.83, alto:0.95 },
+    { min:17, max:18, baixo:0.84, alto:0.96 },
+    { min:19, max:20, baixo:0.85, alto:0.97 },
+  ],
+  Feminino: [
+    { min:10, max:12, baixo:1.70, alto:2.20 },
+    { min:13, max:14, baixo:1.80, alto:2.35 },
+    { min:15, max:16, baixo:1.90, alto:2.30 },
+    { min:17, max:18, baixo:1.60, alto:2.40 },
+    { min:19, max:20, baixo:1.40, alto:2.40 },
+  ],
+};
+
+// Tabela de referência RCQ para adultos (20-69 anos), com 4 faixas de risco.
+// Adaptado de diretrizes da OMS para uso consultivo.
+const RCQ_TABELA_ADULTO = {
+  Masculino: [
+    { min:20, max:29, baixo:0.83, moderado:0.88, alto:0.94 },
+    { min:30, max:39, baixo:0.84, moderado:0.91, alto:0.96 },
+    { min:40, max:49, baixo:0.88, moderado:0.95, alto:1.00 },
+    { min:50, max:59, baixo:0.90, moderado:0.96, alto:1.02 },
+    { min:60, max:69, baixo:0.91, moderado:0.98, alto:1.03 },
+  ],
+  Feminino: [
+    { min:20, max:29, baixo:0.71, moderado:0.77, alto:0.82 },
+    { min:30, max:39, baixo:0.72, moderado:0.78, alto:0.84 },
+    { min:40, max:49, baixo:0.73, moderado:0.79, alto:0.87 },
+    { min:50, max:59, baixo:0.74, moderado:0.81, alto:0.88 },
+    { min:60, max:69, baixo:0.76, moderado:0.83, alto:0.90 },
+  ],
+};
+
+// Classifica o RCQ considerando idade e sexo, usando as tabelas de
+// referência da OMS. Para idade >= 70 anos, usa a ultima faixa da tabela
+// adulta (60-69 anos), já que não há dados de referência acima disso.
+function classRCQ(r, sexo, idade){
+  if(!r) return {label:"--", color:"#c2cdd8"};
+  const v = parseFloat(r);
+  const sx = sexo==="Masculino" ? "Masculino" : "Feminino"; // fallback seguro
+  const idadeNum = parseInt(idade);
+
+  // Sem idade valida: mantem um fallback simples (mesma logica generica de antes)
+  if(!idadeNum || isNaN(idadeNum)){
+    if(sx==="Masculino"){
+      if(v<0.90) return {label:"Baixo risco", color:"#34d399"};
+      if(v<1.00) return {label:"Risco moderado", color:"#fbbf24"};
+      return {label:"Alto risco", color:"#f87171"};
+    } else {
+      if(v<0.80) return {label:"Baixo risco", color:"#34d399"};
+      if(v<0.86) return {label:"Risco moderado", color:"#fbbf24"};
+      return {label:"Alto risco", color:"#f87171"};
+    }
+  }
+
+  // 10 a 20 anos: tabela jovem (so Baixo/Alto risco, sem faixa "moderado")
+  if(idadeNum>=10 && idadeNum<=20){
+    const tabela = RCQ_TABELA_JOVEM[sx];
+    const faixa = tabela.find(f=>idadeNum>=f.min && idadeNum<=f.max) || tabela[tabela.length-1];
+    if(v<faixa.baixo) return {label:"Baixo risco", color:"#34d399"};
+    if(v<faixa.alto)  return {label:"Risco moderado", color:"#fbbf24"};
+    return {label:"Alto risco", color:"#f87171"};
+  }
+
+  // 20 a 69 anos (e 70+ usando a ultima faixa, 60-69): tabela adulta completa
+  if(idadeNum>=20){
+    const tabela = RCQ_TABELA_ADULTO[sx];
+    const faixa = idadeNum<=69
+      ? (tabela.find(f=>idadeNum>=f.min && idadeNum<=f.max) || tabela[tabela.length-1])
+      : tabela[tabela.length-1]; // 70+ usa a faixa de 60-69 anos
+    if(v<faixa.baixo)    return {label:"Baixo risco", color:"#34d399"};
+    if(v<=faixa.moderado)return {label:"Risco moderado", color:"#fbbf24"};
+    if(v<=faixa.alto)    return {label:"Alto risco", color:"#f87171"};
+    return {label:"Risco muito alto", color:"#dc2626"};
+  }
+
+  // Menor que 10 anos: fora do escopo das tabelas de referência
+  return {label:"Fora da faixa de referência", color:"#c2cdd8"};
 }
 // PA: até 120/80 = Normal (inclusive)
 function classPA(p){
@@ -846,7 +925,7 @@ function montarAvaliacoes(aluno){
 
 function DetalheAvaliacaoModal({aval, idx, total, sexo, idade, onClose, onExcluir, podeEditar}){
   const imc=calcIMC(aval.peso,aval.altura), imcC=classIMC(imc);
-  const rcq=calcRCQ(aval.cintura,aval.quadril), rcqC=classRCQ(rcq,sexo);
+  const rcq=calcRCQ(aval.cintura,aval.quadril), rcqC=classRCQ(rcq,sexo,idade);
   const paC=classPA(aval.pressao);
   const poll=aval.dobTriceps ? calcPollock(aval, idade, sexo) : null;
   const pn=parseFloat(aval.peso)||0;
@@ -1061,7 +1140,7 @@ function AvaliacaoFormView({aluno, onVoltar, onSalvar}){
   const f=(k,v)=>setAval(p=>({...p,[k]:v}));
 
   const imc=calcIMC(aval.peso,aval.altura),imcC=classIMC(imc);
-  const rcq=calcRCQ(aval.cintura,aval.quadril),rcqC=classRCQ(rcq,aluno.sexo);
+  const rcq=calcRCQ(aval.cintura,aval.quadril),rcqC=classRCQ(rcq,aluno.sexo,aluno.idade);
   const poll=calcPollock(aval,aluno.idade,aluno.sexo);
 
   const salvar=()=>{
@@ -3976,7 +4055,7 @@ export default function App(){
   };
 
   const imc=calcIMC(form.peso,form.altura),imcC=classIMC(imc);
-  const rcq=calcRCQ(form.cintura,form.quadril),rcqC=classRCQ(rcq,form.sexo);
+  const rcq=calcRCQ(form.cintura,form.quadril),rcqC=classRCQ(rcq,form.sexo,form.idade);
   const paC=classPA(form.pressao);
   const poll=calcPollock(form,form.idade,form.sexo);
 
@@ -4083,7 +4162,7 @@ export default function App(){
             {(a.peso||a.altura||a.cintura||a.quadril||a.pressao)&&(()=>{
               const imcF=calcIMC(a.peso,a.altura),imcCF=classIMC(imcF);
               const paF=classPA(a.pressao);
-              const rcqF=calcRCQ(a.cintura,a.quadril),rcqCF=classRCQ(rcqF,a.sexo);
+              const rcqF=calcRCQ(a.cintura,a.quadril),rcqCF=classRCQ(rcqF,a.sexo,a.idade);
               return(
                 <div style={css.card}>
                   <div style={css.secHdr}>Antropometria</div>
@@ -5121,7 +5200,7 @@ export default function App(){
   if(view==="detail"&&selected){
     const a=alunos.find(x=>x.id===selected.id)||selected;
     const imcA=calcIMC(a.peso,a.altura),imcCA=classIMC(imcA);
-    const rcqA=calcRCQ(a.cintura,a.quadril),rcqCA=classRCQ(rcqA,a.sexo);
+    const rcqA=calcRCQ(a.cintura,a.quadril),rcqCA=classRCQ(rcqA,a.sexo,a.idade);
     const paCA=classPA(a.pressao);
     const pollA=calcPollock(a,a.idade,a.sexo);
     // Envio de WhatsApp: admin pode enviar para qualquer aluno; profissional
