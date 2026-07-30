@@ -1255,7 +1255,7 @@ function AvaliacaoFormView({aluno, onVoltar, onSalvar}){
         <button style={css.btnB} onClick={onVoltar}>← Voltar</button>
         <div style={{textAlign:"center"}}>
           <div style={{fontWeight:700,fontSize:14}}>{aluno.nome}</div>
-          <div style={{fontSize:11,color:C.muted}}>Nova Avaliacao Fisica</div>
+          <div style={{fontSize:11,color:C.muted}}>Nova Avaliação Física</div>
         </div>
         <button style={{...css.btnA,background:salvou?"linear-gradient(135deg,#059669,#34d399)":"linear-gradient(135deg,#f97316,#e05a00)"}}
           onClick={salvar}>
@@ -1840,7 +1840,7 @@ function AgendaSelecaoView({profissionais, onSelect, onVoltar, onBuscar}){
             display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🔍</div>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontWeight:700,fontSize:14,color:"#34d399"}}>Buscar Horarios Vagos</div>
-            <div style={{fontSize:11,color:C.muted}}>Filtrar por dias e horario entre todos os profissionais</div>
+            <div style={{fontSize:11,color:C.muted}}>Filtrar por dias e horário entre todos os profissionais</div>
           </div>
           <span style={{color:"#34d399",fontSize:20}}>›</span>
         </button>
@@ -1966,7 +1966,7 @@ function AgendaBuscaView({profissionais, agendas, onVoltar, onAbrirAgenda}){
 
         {/* Filtro de horário */}
         <div style={css.card}>
-          <div style={css.secHdr}>Horario</div>
+          <div style={css.secHdr}>Horário</div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
             {todosHorarios.map(h=>{
               const ativo = horaSel===h;
@@ -2446,7 +2446,7 @@ function FormularioPublicoAluno({convite, onEnviar}){
             <div style={{fontWeight:800,fontSize:20,color:"#34d399",marginBottom:10}}>Cadastro enviado!</div>
             <div style={{fontSize:14,color:C.muted,lineHeight:1.7}}>
               Obrigado, {form.nome.split(" ")[0]}! Seus dados foram enviados para {convite.profissionalNome||"seu personal"}.
-              Em breve voce recebera mais informacoes sobre seu treino e avaliacao fisica.
+              Em breve você receberá mais informações sobre seu treino e avaliação física.
             </div>
           </div>
         </div>
@@ -2465,7 +2465,7 @@ function FormularioPublicoAluno({convite, onEnviar}){
         <div style={{...css.card,background:"#1a1008",border:"1px solid "+C.accent+"40",marginBottom:16}}>
           <div style={{fontSize:13,color:C.text,lineHeight:1.7}}>
             👋 Ola! Preencha seus dados abaixo para iniciar seu cadastro com <strong>{convite.profissionalNome||"seu personal"}</strong>.
-            Seu profissional ira completar sua avaliacao fisica e prescrever seu treino em seguida.
+            Seu profissional irá completar sua avaliação física e prescrever seu treino em seguida.
           </div>
         </div>
 
@@ -3671,7 +3671,7 @@ export default function App(){
             setCurrentUser({...dadosProf, id: usuarioFirebase.uid});
           }
         }catch(e){
-          console.error("Erro ao restaurar sessao:", e);
+          console.error("Erro ao restaurar sessão:", e);
         }
       } else {
         // Sem sessao Firebase ativa. Pode ainda ser um "aluno" logado localmente
@@ -3959,7 +3959,7 @@ export default function App(){
           try{
             await criarAluno(novoAluno);
           }catch(e){
-            console.error("Erro ao salvar aluno via link publico:", e);
+            console.error("Erro ao salvar aluno via link público:", e);
           }
           // Marca o convite como preenchido para nao ser reutilizado
           try{
@@ -4138,7 +4138,7 @@ export default function App(){
     try{
       await salvarAluno(selected.id, {historicoAvaliacoes:alunoAtualizado.historicoAvaliacoes});
     }catch(e){
-      console.error("Erro ao adicionar avaliacao:", e);
+      console.error("Erro ao adicionar avaliação:", e);
     }
     setSelected(alunoAtualizado);
     setNovaAval(null);
@@ -4292,7 +4292,7 @@ export default function App(){
             {/* Contato de emergência */}
             {(a.nomeEmergencia||a.telEmergencia)&&(
               <div style={{...css.card,background:"#1a0808",border:"1px solid #7f1d1d30"}}>
-                <div style={{...css.secHdr,color:"#f87171"}}>Contato de Emergencia</div>
+                <div style={{...css.secHdr,color:"#f87171"}}>Contato de Emergência</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                   <ReadField label="Nome" value={a.nomeEmergencia}/>
                   <ReadField label="Telefone" value={a.telEmergencia}/>
@@ -5102,7 +5102,7 @@ export default function App(){
         try{
           await salvarAluno(a.id, {historicoAvaliacoes:alunoAtualizado.historicoAvaliacoes});
         }catch(e){
-          console.error("Erro ao salvar avaliacao:", e);
+          console.error("Erro ao salvar avaliação:", e);
         }
         setSelected(alunoAtualizado);
       }}
@@ -5257,7 +5257,7 @@ export default function App(){
             <div style={{fontSize:32,marginBottom:12}}>📊</div>
             <div style={{fontWeight:700,fontSize:16,color:"#34d399",marginBottom:8}}>Avaliação Física</div>
             <div style={{fontSize:13,color:C.muted,lineHeight:1.7,marginBottom:20}}>
-              A avaliacao fisica e lancada de forma independente, com data propria e historico automatico.
+              A avaliação física é lançada de forma independente, com data própria e histórico automático.
             </div>
             {editId&&(
               <button onClick={async()=>{
@@ -5266,7 +5266,7 @@ export default function App(){
                 try{
                   await salvarAluno(editId, merged);
                 }catch(e){
-                  console.error("Erro ao salvar antes de ir para avaliacao:", e);
+                  console.error("Erro ao salvar antes de ir para avaliação:", e);
                 }
                 setSelected(merged);
                 setView("avaliacao");
@@ -5275,7 +5275,7 @@ export default function App(){
               </button>
             )}
             {!editId&&(
-              <div style={{fontSize:12,color:C.muted}}>Salve o cadastro primeiro, depois acesse a avaliacao pela ficha do aluno.</div>
+              <div style={{fontSize:12,color:C.muted}}>Salve o cadastro primeiro, depois acesse a avaliação pela ficha do aluno.</div>
             )}
           </div>
         </>}
@@ -5522,7 +5522,7 @@ export default function App(){
 
           {dTab==="avaliacao"&&<>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-              <div style={{fontWeight:700,fontSize:13,color:C.sectionHdr,textTransform:"uppercase",letterSpacing:1}}>Avaliacoes</div>
+              <div style={{fontWeight:700,fontSize:13,color:C.sectionHdr,textTransform:"uppercase",letterSpacing:1}}>Avaliações</div>
               {podeEditar&&<button style={css.btnA} onClick={()=>{setSelected(a);setView("avaliacao");}}>+ Nova Avaliação</button>}
             </div>
             <AvaliacaoAlunoView aluno={a}
@@ -5533,7 +5533,7 @@ export default function App(){
                 try{
                   await salvarAluno(a.id, {historicoAvaliacoes:novo});
                 }catch(e){
-                  console.error("Erro ao excluir avaliacao:", e);
+                  console.error("Erro ao excluir avaliação:", e);
                 }
                 setSelected(upd);
               }}
@@ -5733,7 +5733,7 @@ function PgTreino({form,u,aba,setAba}){
 
             {(form.diasTreino||[]).length>0&&(
               <div>
-                <label style={css.lbl}>Horario por dia</label>
+                <label style={css.lbl}>Horário por dia</label>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:6}}>
                   {(form.diasTreino||[]).map(d=>(
                     <div key={d} style={{display:"flex",alignItems:"center",gap:8,background:"#121212",border:"1px solid #2a1a08",borderRadius:8,padding:"8px 10px"}}>
@@ -6132,7 +6132,7 @@ function AdicionarExercicio({cor,onAddEx,onAddCardio}){
           ))}
         </div>
         <div style={{marginBottom:10}}>
-          <label style={css.lbl}>Observacao</label>
+          <label style={css.lbl}>Observação</label>
           <input style={css.input} placeholder="Ex: Controlar a descida..." value={obs} onChange={e=>setObs(e.target.value)}/>
         </div>
       </>}
@@ -6280,7 +6280,7 @@ function TreinoAlunoView({aluno, treinoInicial}){
                                   </div>
                                   {ex.obs&&(
                                     <div style={{background:cor+"12",border:"1px solid "+cor+"40",borderRadius:8,padding:"9px 12px"}}>
-                                      <div style={{fontSize:9,color:cor,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Observacao</div>
+                                      <div style={{fontSize:9,color:cor,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Observação</div>
                                       <div style={{fontSize:13,color:C.text,lineHeight:1.5,fontWeight:600}}>{ex.obs}</div>
                                     </div>
                                   )}
@@ -6483,7 +6483,7 @@ function TreinoView({aluno}){
                                       </div>
                                       {ex.obs&&(
                                         <div style={{background:cor+"12",border:"1px solid "+cor+"40",borderRadius:8,padding:"9px 12px"}}>
-                                          <div style={{fontSize:9,color:cor,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Observacao</div>
+                                          <div style={{fontSize:9,color:cor,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Observação</div>
                                           <div style={{fontSize:13,color:C.text,lineHeight:1.5,fontWeight:600}}>{ex.obs}</div>
                                         </div>
                                       )}
@@ -6568,7 +6568,7 @@ function AddProfForm({onSave,onCancel,forcarAdmin}){
             <input type="email" style={css.input} value={email} onChange={e=>setEmail(e.target.value)} placeholder="profissional@email.com"/>
           </div>
           <div>
-            <label style={css.lbl}>Senha (minimo 6 caracteres) *</label>
+            <label style={css.lbl}>Senha (mínimo 6 caracteres) *</label>
             <input type="password" style={css.input} value={senha} onChange={e=>setSenha(e.target.value)} placeholder="Senha de acesso"/>
           </div>
         </div>
@@ -6721,7 +6721,7 @@ function LoginScreen({profissionais,alunos,onLoginProf,onLoginAluno}){
                 display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>🏋</div>
               <div>
                 <div style={{fontWeight:800,fontSize:17,color:C.text,marginBottom:3}}>Aluno</div>
-                <div style={{fontSize:12,color:C.muted}}>Acesse seu treino e avaliacao</div>
+                <div style={{fontSize:12,color:C.muted}}>Acesse seu treino e avaliação</div>
               </div>
               <span style={{color:"#34d399",fontSize:22,marginLeft:"auto"}}>›</span>
             </button>
@@ -6780,7 +6780,7 @@ function LoginScreen({profissionais,alunos,onLoginProf,onLoginAluno}){
       </header>
       <div style={css.wrap}>
         <div style={{fontSize:13,color:C.muted,marginBottom:16,lineHeight:1.6}}>
-          Digite seu nome para acessar seu treino e avaliacao fisica.
+          Digite seu nome para acessar seu treino e avaliação física.
         </div>
         <input
           style={{...css.input,padding:"12px 14px",fontSize:16,marginBottom:12}}
@@ -6816,7 +6816,7 @@ function LoginScreen({profissionais,alunos,onLoginProf,onLoginAluno}){
         )}
         <div style={{marginTop:20,background:"#0f0a04",border:"1px solid #2e1e08",borderRadius:8,padding:"12px 14px"}}>
           <div style={{fontSize:11,color:C.muted,lineHeight:1.7}}>
-            🔒 Acesso somente leitura. Voce podera visualizar seu treino, ficha e avaliacao fisica.
+            🔒 Acesso somente leitura. Você poderá visualizar seu treino, ficha e avaliação física.
           </div>
         </div>
       </div>
