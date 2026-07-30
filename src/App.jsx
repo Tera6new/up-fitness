@@ -84,13 +84,103 @@ function calcIMC(peso,alt){
   if(a>3) a=a/100; // altura em cm → converte para metros
   return (p/(a*a)).toFixed(2);
 }
-function classIMC(v){
-  if(!v)return{label:"--",color:"#c2cdd8"};
-  const n=parseFloat(v);
-  if(n<18.5)return{label:"Abaixo do peso",color:"#60a5fa"};
-  if(n<25)  return{label:"Normal",        color:"#34d399"};
-  if(n<30)  return{label:"Sobrepeso",     color:"#fbbf24"};
-  return           {label:"Obesidade",    color:"#f87171"};
+
+// Tabela de percentis de IMC por idade e sexo, para adolescentes (10-19 anos).
+const IMC_TABELA_ADOLESCENTE = {
+  Masculino: [
+    { idade:10, baixo:14.42, riscoBaixo:15.15, eutrofico:16.72, riscoSobrepeso:19.60, sobrepeso:22.60 },
+    { idade:11, baixo:14.83, riscoBaixo:15.59, eutrofico:17.28, riscoSobrepeso:20.35, sobrepeso:23.73 },
+    { idade:12, baixo:15.24, riscoBaixo:16.06, eutrofico:17.87, riscoSobrepeso:21.12, sobrepeso:24.89 },
+    { idade:13, baixo:15.73, riscoBaixo:16.62, eutrofico:18.53, riscoSobrepeso:21.93, sobrepeso:25.93 },
+    { idade:14, baixo:16.18, riscoBaixo:17.20, eutrofico:19.22, riscoSobrepeso:22.77, sobrepeso:26.93 },
+    { idade:15, baixo:16.59, riscoBaixo:17.76, eutrofico:19.92, riscoSobrepeso:23.63, sobrepeso:27.76 },
+    { idade:16, baixo:17.01, riscoBaixo:18.32, eutrofico:20.63, riscoSobrepeso:24.45, sobrepeso:28.53 },
+    { idade:17, baixo:17.31, riscoBaixo:18.68, eutrofico:21.12, riscoSobrepeso:25.28, sobrepeso:29.32 },
+    { idade:18, baixo:17.54, riscoBaixo:18.89, eutrofico:21.45, riscoSobrepeso:25.92, sobrepeso:30.02 },
+    { idade:19, baixo:17.80, riscoBaixo:19.20, eutrofico:21.86, riscoSobrepeso:26.36, sobrepeso:30.66 },
+  ],
+  Feminino: [
+    { idade:10, baixo:14.23, riscoBaixo:15.09, eutrofico:17.00, riscoSobrepeso:20.19, sobrepeso:23.20 },
+    { idade:11, baixo:14.60, riscoBaixo:15.53, eutrofico:17.67, riscoSobrepeso:21.18, sobrepeso:24.59 },
+    { idade:12, baixo:14.98, riscoBaixo:15.98, eutrofico:17.35, riscoSobrepeso:22.17, sobrepeso:25.95 },
+    { idade:13, baixo:15.36, riscoBaixo:16.43, eutrofico:18.95, riscoSobrepeso:23.08, sobrepeso:27.07 },
+    { idade:14, baixo:15.67, riscoBaixo:16.79, eutrofico:19.32, riscoSobrepeso:23.88, sobrepeso:27.97 },
+    { idade:15, baixo:16.01, riscoBaixo:17.16, eutrofico:19.69, riscoSobrepeso:24.29, sobrepeso:28.51 },
+    { idade:16, baixo:16.37, riscoBaixo:17.54, eutrofico:20.09, riscoSobrepeso:24.74, sobrepeso:29.10 },
+    { idade:17, baixo:16.59, riscoBaixo:17.81, eutrofico:20.36, riscoSobrepeso:25.23, sobrepeso:29.72 },
+    { idade:18, baixo:16.71, riscoBaixo:17.99, eutrofico:20.57, riscoSobrepeso:25.56, sobrepeso:30.22 },
+    { idade:19, baixo:16.87, riscoBaixo:18.20, eutrofico:20.80, riscoSobrepeso:25.85, sobrepeso:30.72 },
+  ],
+};
+
+// Tabela de IMC para idosos (65+ anos), por sexo.
+const IMC_TABELA_IDOSO = {
+  Feminino: [
+    { max:21.9, label:"Abaixo do peso", color:"#60a5fa" },
+    { max:27.0, label:"Peso normal", color:"#34d399" },
+    { max:32.0, label:"Sobrepeso", color:"#fbbf24" },
+    { max:37.0, label:"Obesidade grau I", color:"#f97316" },
+    { max:41.9, label:"Obesidade grau II (severa)", color:"#f87171" },
+    { max:Infinity, label:"Obesidade grau III (mórbida)", color:"#dc2626" },
+  ],
+  Masculino: [
+    { max:21.9, label:"Abaixo do peso", color:"#60a5fa" },
+    { max:27.0, label:"Peso normal", color:"#34d399" },
+    { max:30.0, label:"Sobrepeso", color:"#fbbf24" },
+    { max:35.0, label:"Obesidade grau I", color:"#f97316" },
+    { max:39.9, label:"Obesidade grau II (severa)", color:"#f87171" },
+    { max:Infinity, label:"Obesidade grau III (mórbida)", color:"#dc2626" },
+  ],
+};
+
+// Classifica o IMC considerando idade e sexo.
+// - Ate 9 anos: fora da faixa de referencia (sem tabela disponivel)
+// - 10 a 19 anos: tabela de percentis por sexo (adolescentes)
+// - 20 a 64 anos: classificacao padrao OMS (igual para ambos os sexos)
+// - 65+ anos: tabela de idosos por sexo
+function classIMC(v, sexo, idade){
+  if(!v) return {label:"--", color:"#c2cdd8"};
+  const n = parseFloat(v);
+  const idadeNum = parseInt(idade);
+  const sx = sexo==="Masculino" ? "Masculino" : "Feminino"; // fallback seguro
+
+  // Sem idade valida: mantem a classificacao padrao (mesma logica generica de antes)
+  if(!idadeNum || isNaN(idadeNum)){
+    if(n<18.5) return {label:"Abaixo do peso", color:"#60a5fa"};
+    if(n<25)   return {label:"Normal",         color:"#34d399"};
+    if(n<30)   return {label:"Sobrepeso",      color:"#fbbf24"};
+    return             {label:"Obesidade",      color:"#f87171"};
+  }
+
+  // Ate 9 anos: fora do escopo das tabelas de referencia disponiveis
+  if(idadeNum<10){
+    return {label:"Fora da faixa de referência", color:"#c2cdd8"};
+  }
+
+  // 10 a 19 anos: tabela de percentis por idade e sexo
+  if(idadeNum<=19){
+    const tabela = IMC_TABELA_ADOLESCENTE[sx];
+    const faixa = tabela.find(f=>f.idade===idadeNum) || tabela[tabela.length-1];
+    if(n<faixa.baixo)          return {label:"Baixo peso",           color:"#60a5fa"};
+    if(n<faixa.riscoBaixo)     return {label:"Risco de baixo peso",  color:"#93c5fd"};
+    if(n<faixa.eutrofico)      return {label:"Eutrófico",            color:"#34d399"};
+    if(n<faixa.riscoSobrepeso) return {label:"Risco de sobrepeso",   color:"#fbbf24"};
+    if(n<faixa.sobrepeso)      return {label:"Sobrepeso",            color:"#f97316"};
+    return                            {label:"Obesidade",             color:"#f87171"};
+  }
+
+  // 65+ anos: tabela especifica para idosos, por sexo
+  if(idadeNum>=65){
+    const tabela = IMC_TABELA_IDOSO[sx];
+    const faixa = tabela.find(f=>n<=f.max) || tabela[tabela.length-1];
+    return {label:faixa.label, color:faixa.color};
+  }
+
+  // 20 a 64 anos: classificacao padrao OMS (igual para ambos os sexos)
+  if(n<18.5) return {label:"Abaixo do peso", color:"#60a5fa"};
+  if(n<25)   return {label:"Normal",         color:"#34d399"};
+  if(n<30)   return {label:"Sobrepeso",      color:"#fbbf24"};
+  return             {label:"Obesidade",      color:"#f87171"};
 }
 function calcRCQ(c,q){ if(!c||!q)return null; return(c/q).toFixed(2); }
 
@@ -924,7 +1014,7 @@ function montarAvaliacoes(aluno){
 }
 
 function DetalheAvaliacaoModal({aval, idx, total, sexo, idade, onClose, onExcluir, podeEditar}){
-  const imc=calcIMC(aval.peso,aval.altura), imcC=classIMC(imc);
+  const imc=calcIMC(aval.peso,aval.altura), imcC=classIMC(imc,sexo,idade);
   const rcq=calcRCQ(aval.cintura,aval.quadril), rcqC=classRCQ(rcq,sexo,idade);
   const paC=classPA(aval.pressao);
   const poll=aval.dobTriceps ? calcPollock(aval, idade, sexo) : null;
@@ -1139,7 +1229,7 @@ function AvaliacaoFormView({aluno, onVoltar, onSalvar}){
   const [salvou,setSalvou]=useState(false);
   const f=(k,v)=>setAval(p=>({...p,[k]:v}));
 
-  const imc=calcIMC(aval.peso,aval.altura),imcC=classIMC(imc);
+  const imc=calcIMC(aval.peso,aval.altura),imcC=classIMC(imc,aluno.sexo,aluno.idade);
   const rcq=calcRCQ(aval.cintura,aval.quadril),rcqC=classRCQ(rcq,aluno.sexo,aluno.idade);
   const poll=calcPollock(aval,aluno.idade,aluno.sexo);
 
@@ -4054,7 +4144,7 @@ export default function App(){
     setNovaAval(null);
   };
 
-  const imc=calcIMC(form.peso,form.altura),imcC=classIMC(imc);
+  const imc=calcIMC(form.peso,form.altura),imcC=classIMC(imc,form.sexo,form.idade);
   const rcq=calcRCQ(form.cintura,form.quadril),rcqC=classRCQ(rcq,form.sexo,form.idade);
   const paC=classPA(form.pressao);
   const poll=calcPollock(form,form.idade,form.sexo);
@@ -4104,7 +4194,7 @@ export default function App(){
   if(currentUser?.role==="aluno"){
     const a=alunos.find(x=>x.id===currentUser.id)||currentUser;
     const prof=profissionais.find(p=>p.id===a.profissionalId);
-    const imcA=calcIMC(a.peso,a.altura),imcCA=classIMC(imcA);
+    const imcA=calcIMC(a.peso,a.altura),imcCA=classIMC(imcA,a.sexo,a.idade);
     const paCA=classPA(a.pressao);
     const pollA=calcPollock(a,a.idade,a.sexo);
     const TABS=[{k:"treino",l:"🏋 Treino"},{k:"ficha",l:"👤 Ficha"},{k:"avaliacao",l:"📊 Avaliação"},{k:"ouvidoria",l:"📣 Ouvidoria"}];
@@ -4160,7 +4250,7 @@ export default function App(){
 
             {/* Antropometria */}
             {(a.peso||a.altura||a.cintura||a.quadril||a.pressao)&&(()=>{
-              const imcF=calcIMC(a.peso,a.altura),imcCF=classIMC(imcF);
+              const imcF=calcIMC(a.peso,a.altura),imcCF=classIMC(imcF,a.sexo,a.idade);
               const paF=classPA(a.pressao);
               const rcqF=calcRCQ(a.cintura,a.quadril),rcqCF=classRCQ(rcqF,a.sexo,a.idade);
               return(
@@ -4848,7 +4938,7 @@ export default function App(){
         <input style={{...css.input,marginBottom:14,padding:"10px 14px",fontSize:16}} placeholder="Buscar aluno..." value={busca} onChange={e=>setBusca(e.target.value)}/>
         {lista.length===0&&<div style={{textAlign:"center",color:C.muted,padding:40}}>Nenhum aluno encontrado.</div>}
         {lista.map(a=>{
-          const im=calcIMC(a.peso,a.altura),ic=classIMC(im);
+          const im=calcIMC(a.peso,a.altura),ic=classIMC(im,a.sexo,a.idade);
           const dias=a.diasTreino||[];
           const horarios=a.horariosTreino||{};
           return(
@@ -5199,7 +5289,7 @@ export default function App(){
   // ── DETAIL ────────────────────────────────────────────────────────────────
   if(view==="detail"&&selected){
     const a=alunos.find(x=>x.id===selected.id)||selected;
-    const imcA=calcIMC(a.peso,a.altura),imcCA=classIMC(imcA);
+    const imcA=calcIMC(a.peso,a.altura),imcCA=classIMC(imcA,a.sexo,a.idade);
     const rcqA=calcRCQ(a.cintura,a.quadril),rcqCA=classRCQ(rcqA,a.sexo,a.idade);
     const paCA=classPA(a.pressao);
     const pollA=calcPollock(a,a.idade,a.sexo);
