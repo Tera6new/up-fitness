@@ -840,7 +840,7 @@ function ModalEditProf({prof, currentUserRole, onSave, onClose, onExcluir}){
 function StepBar({page,total,onSelect,editMode}){
   const labels=[
     {s:"Dados Pessoais",sub:"Anamnese"},
-    {s:"Antropometria",sub:"IMC, PA, RCQ"},
+    {s:"Antropometria",sub:"IMC, RCQ"},
     {s:"Aval. Física",sub:"Dobras"},
     {s:"Treino",sub:"Prescrição"},
   ];
@@ -4398,15 +4398,11 @@ export default function App(){
                     <ReadField label="IMC" value={imcF?imcF+" — "+imcCF.label:""} color={imcF?imcCF.color:undefined}/>
                   </div>
                   {/* Linha 2: Cintura / Quadril / RCQ */}
-                  <div style={{...css.row("1fr 1fr 1fr"),marginBottom:a.pressao?12:0}}>
+                  <div style={css.row("1fr 1fr 1fr")}>
                     <ReadField label="Cintura" value={a.cintura?a.cintura+" cm":""}/>
                     <ReadField label="Quadril" value={a.quadril?a.quadril+" cm":""}/>
                     <ReadField label="RCQ" value={rcqF?rcqF+" — "+rcqCF.label:""} color={rcqF?rcqCF.color:undefined}/>
                   </div>
-                  {/* Linha 3: Pressão Arterial */}
-                  {a.pressao&&(
-                    <ReadField label="Pressão Arterial" value={a.pressao+(paF?" — "+paF.label:"")} color={paF?.color}/>
-                  )}
                 </div>
               );
             })()}
@@ -5353,20 +5349,6 @@ export default function App(){
               <Inp label="Peso (kg)" type="number" step="0.1" value={form.peso} onChange={v=>u("peso",v)} placeholder="70.5"/>
               <Inp label="Altura (cm)" type="number" value={form.altura} onChange={v=>u("altura",v)} placeholder="170"/>
               <ResultBox label="IMC" value={imc||"--"} color={imcC.color} sub={imc?imcC.label:null}/>
-            </div>
-          </div>
-
-          <div style={css.card}>
-            <div style={css.secHdr}>Pressao Arterial</div>
-            <div style={css.row("1fr 1fr")}>
-              <Inp label="Pressão (ex: 120/80)" value={form.pressao} onChange={v=>u("pressao",v)} placeholder="120/80 mmHg"/>
-              {paC
-                ?<ResultBox label="Diagnóstico" value={paC.label} color={paC.color}/>
-                :<div>
-                  <label style={css.lbl}>Diagnostico</label>
-                  <div style={{...css.input,color:C.muted,display:"flex",alignItems:"center"}}>Preencha a pressao</div>
-                </div>
-              }
             </div>
           </div>
 
