@@ -439,6 +439,7 @@ const emptyForm = {
   dobSuprailiaca:"", dobAbdomen:"", dobCoxa:"", dobPanturrilha:"",
   gordura:"", massaMagra:"",
   historicoAvaliacoes:[],
+  historicoMedicoes:[],
   frequencia:"", nivelExperiencia:"", dataInicioTreino:"",
   diasTreino:[], horariosTreino:{},
   exerciciosContra:"", obsTreino:"",
@@ -1127,6 +1128,138 @@ function DetalheAvaliacaoModal({aval, idx, total, sexo, idade, onClose, onExclui
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── MEDICOES ANTROPOMETRICAS (historico por data) ──────────────────────────
+// Modal para registrar uma nova medicao (peso, altura, cintura, quadril),
+// calculando IMC e RCQ automaticamente a partir dos valores informados.
+function ModalNovaMedicao({sexo, idade, onSalvar, onClose}){
+  const [data,setData]=useState(()=>new Date().toISOString().slice(0,10));
+  const [peso,setPeso]=useState("");
+  const [altura,setAltura]=useState("");
+  const [cintura,setCintura]=useState("");
+  const [quadril,setQuadril]=useState("");
+  const [salvando,setSalvando]=useState(false);
+
+  const imc = calcIMC(peso,altura);
+  const imcC = classIMC(imc, sexo, idade);
+  const rcq = calcRCQ(cintura,quadril);
+  const rcqC = classRCQ(rcq, sexo, idade);
+
+  const salvar = async ()=>{
+    if(!peso && !altura && !cintura && !quadril) return;
+    setSalvando(true);
+    await onSalvar({ id:Date.now(), data, peso, altura, cintura, quadril });
+    setSalvando(false);
+  };
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"#000000ee",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:C.card,border:"1px solid #332010",borderRadius:16,padding:20,width:"100%",maxWidth:420,maxHeight:"85vh",overflowY:"auto"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontWeight:800,fontSize:16,color:C.accent}}>📏 Nova Medição</div>
+          <button onClick={onClose}
+            style={{background:"#1c1c1c",border:"1px solid #332010",color:C.text,borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>✕</button>
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <DateScrollPicker label="Data da medição" value={data} onChange={setData}/>
+        </div>
+
+        <div style={css.card}>
+          <div style={css.secHdr}>Peso e Altura</div>
+          <div style={css.row("repeat(auto-fill,minmax(130px,1fr))")}>
+            <Inp label="Peso (kg)" type="number" step="0.1" value={peso} onChange={setPeso} placeholder="70.5"/>
+            <Inp label="Altura (cm)" type="number" value={altura} onChange={setAltura} placeholder="170"/>
+            {imc
+              ? <ResultBox label="IMC" value={imc} color={imcC.color} sub={imcC.label}/>
+              : <div><label style={css.lbl}>IMC</label><div style={{...css.input,color:C.muted}}>--</div></div>}
+          </div>
+        </div>
+
+        <div style={{...css.card,marginTop:12}}>
+          <div style={css.secHdr}>Cintura e Quadril</div>
+          <div style={css.row("repeat(auto-fill,minmax(130px,1fr))")}>
+            <Inp label="Cintura (cm)" type="number" step="0.1" value={cintura} onChange={setCintura} placeholder="80"/>
+            <Inp label="Quadril (cm)" type="number" step="0.1" value={quadril} onChange={setQuadril} placeholder="100"/>
+            {rcq
+              ? <ResultBox label="RCQ" value={rcq} color={rcqC.color} sub={rcqC.label}/>
+              : <div><label style={css.lbl}>RCQ</label><div style={{...css.input,color:C.muted}}>--</div></div>}
+          </div>
+        </div>
+
+        <button onClick={salvar} disabled={salvando}
+          style={{...css.btnA,width:"100%",padding:"13px",fontSize:14,marginTop:16,opacity:salvando?.6:1}}>
+          {salvando?"Salvando...":"Salvar Medição"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Modal com o detalhe de uma medicao especifica ja salva no historico.
+function MedicaoDetalheModal({medicao, sexo, idade, onClose, onExcluir, podeEditar}){
+  const imc = calcIMC(medicao.peso, medicao.altura);
+  const imcC = classIMC(imc, sexo, idade);
+  const rcq = calcRCQ(medicao.cintura, medicao.quadril);
+  const rcqC = classRCQ(rcq, sexo, idade);
+  const [confirmarExcluir,setConfirmarExcluir]=useState(false);
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"#000000ee",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:C.card,border:"1px solid #332010",borderRadius:16,padding:20,width:"100%",maxWidth:420,maxHeight:"85vh",overflowY:"auto"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontWeight:800,fontSize:16,color:C.accent}}>{medicao.data}</div>
+          <button onClick={onClose}
+            style={{background:"#1c1c1c",border:"1px solid #332010",color:C.text,borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>✕</button>
+        </div>
+
+        {imc&&(
+          <div style={{...css.card,marginBottom:12}}>
+            <div style={css.secHdr}>IMC</div>
+            <div style={{display:"flex",alignItems:"center",gap:16}}>
+              <div style={{fontSize:36,fontWeight:800,color:imcC.color}}>{imc}</div>
+              <div>
+                <div style={{fontWeight:700,color:imcC.color,fontSize:14}}>{imcC.label}</div>
+                <div style={{fontSize:12,color:C.muted,marginTop:2}}>Peso {medicao.peso}kg · Altura {medicao.altura}cm</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {rcq&&(
+          <div style={css.card}>
+            <div style={css.secHdr}>Relação Cintura/Quadril</div>
+            <div style={{display:"flex",alignItems:"center",gap:16}}>
+              <div style={{fontSize:36,fontWeight:800,color:rcqC.color}}>{rcq}</div>
+              <div>
+                <div style={{fontWeight:700,color:rcqC.color,fontSize:14}}>{rcqC.label}</div>
+                <div style={{fontSize:12,color:C.muted,marginTop:2}}>Cintura {medicao.cintura}cm · Quadril {medicao.quadril}cm</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {podeEditar&&(
+          <button onClick={()=>setConfirmarExcluir(true)}
+            style={{width:"100%",background:"transparent",border:"1px solid #7f1d1d60",color:"#f87171",
+              borderRadius:9,padding:"11px",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",marginTop:16}}>
+            Excluir medição
+          </button>
+        )}
+      </div>
+
+      {confirmarExcluir&&(
+        <div style={{position:"fixed",inset:0,zIndex:600}}>
+          <Modal title="Excluir medição?" onClose={()=>setConfirmarExcluir(false)}
+            onConfirm={()=>{ onExcluir(medicao.id); setConfirmarExcluir(false); onClose(); }}
+            confirmLabel="Excluir" danger>
+            <p style={{color:C.muted,fontSize:13,textAlign:"center",margin:"6px 0"}}>Essa ação não pode ser desfeita.</p>
+          </Modal>
+        </div>
+      )}
     </div>
   );
 }
@@ -3711,6 +3844,8 @@ export default function App(){
   const [delId,setDelId]=useState(null);
   const [delAvalIdx,setDelAvalIdx]=useState(null);
   const [novaAval,setNovaAval]=useState(null);
+  const [modalNovaMedicao,setModalNovaMedicao]=useState(false);
+  const [medicaoSelecionada,setMedicaoSelecionada]=useState(null);
   const [linkModal,setLinkModal]=useState(false);
   // ── FIX: editProfModal agora é global e funciona em todas as telas
   const [editProfModal,setEditProfModal]=useState(null);
@@ -5475,33 +5610,49 @@ export default function App(){
           </>}
 
           {dTab==="antropo"&&<>
-            {imcA&&(
-              <div style={{...css.card,marginBottom:12}}>
-                <div style={css.secHdr}>IMC</div>
-                <div style={{display:"flex",alignItems:"center",gap:16}}>
-                  <div style={{fontSize:36,fontWeight:800,color:imcCA.color}}>{imcA}</div>
-                  <div>
-                    <div style={{fontWeight:700,color:imcCA.color,fontSize:14}}>{imcCA.label}</div>
-                    <div style={{fontSize:12,color:C.muted,marginTop:2}}>Peso {a.peso}kg · Altura {a.altura}cm</div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+              <div style={{fontWeight:700,fontSize:13,color:C.sectionHdr,textTransform:"uppercase",letterSpacing:1}}>Medições</div>
+              {podeEditar&&<button style={css.btnA} onClick={()=>setModalNovaMedicao(true)}>+ Nova Medição</button>}
+            </div>
+
+            {(() => {
+              const medicoes = [...(a.historicoMedicoes||[])].sort((x,y)=>y.data.localeCompare(x.data));
+              if(medicoes.length===0){
+                return(
+                  <div style={{...css.card,textAlign:"center",color:C.muted,padding:"24px 0",fontSize:13}}>
+                    Nenhuma medição registrada ainda.
                   </div>
+                );
+              }
+              return(
+                <div style={{display:"grid",gap:10}}>
+                  {medicoes.map(m=>{
+                    const imcM = calcIMC(m.peso,m.altura);
+                    const imcCM = classIMC(imcM, a.sexo, a.idade);
+                    return(
+                      <button key={m.id} onClick={()=>setMedicaoSelecionada(m)}
+                        style={{background:C.card,border:"1px solid #2e1e0a",borderRadius:12,padding:"14px 16px",
+                          display:"flex",alignItems:"center",gap:14,cursor:"pointer",textAlign:"left",width:"100%",
+                          fontFamily:"Inter,sans-serif"}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontWeight:700,fontSize:14,color:C.text}}>{m.data}</div>
+                          <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                            {m.peso&&`${m.peso}kg`}{m.peso&&m.altura&&" · "}{m.altura&&`${m.altura}cm`}
+                          </div>
+                        </div>
+                        {imcM&&(
+                          <div style={{textAlign:"right"}}>
+                            <div style={{fontSize:16,fontWeight:800,color:imcCM.color}}>{imcM}</div>
+                            <div style={{fontSize:10,color:imcCM.color}}>IMC</div>
+                          </div>
+                        )}
+                        <span style={{color:C.accent,fontSize:20}}>›</span>
+                      </button>
+                    );
+                  })}
                 </div>
-              </div>
-            )}
-            {paCA&&(
-              <div style={{...css.card,display:"flex",alignItems:"center",gap:16,marginBottom:12}}>
-                <div><div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Pressao Arterial</div><div style={{fontSize:26,fontWeight:800,color:paCA.color}}>{a.pressao}</div></div>
-                <div style={{background:paCA.color+"15",border:"1px solid "+paCA.color+"30",borderRadius:8,padding:"8px 14px"}}><div style={{fontWeight:700,color:paCA.color}}>{paCA.label}</div></div>
-              </div>
-            )}
-            {rcqA&&(
-              <div style={css.card}>
-                <div style={css.secHdr}>Relacao Cintura/Quadril</div>
-                <div style={{display:"flex",alignItems:"center",gap:16}}>
-                  <div style={{fontSize:36,fontWeight:800,color:rcqCA.color}}>{rcqA}</div>
-                  <div><div style={{fontWeight:700,color:rcqCA.color,fontSize:14}}>{rcqCA.label}</div><div style={{fontSize:12,color:C.muted,marginTop:2}}>Cintura {a.cintura}cm · Quadril {a.quadril}cm</div></div>
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             <div style={{marginTop:12}}>
               <GaleriaFotosEvolucao
@@ -5512,7 +5663,7 @@ export default function App(){
                   try{
                     await salvarAluno(a.id, {fotosEvolucao:novasFotos});
                   }catch(e){
-                    console.error("Erro ao salvar fotos de evolucao:", e);
+                    console.error("Erro ao salvar fotos de evolução:", e);
                   }
                   setSelected(upd);
                 }}
@@ -5662,6 +5813,43 @@ export default function App(){
 
         {modalWhatsAppAluno&&(
           <ModalEnviarWhatsApp aluno={modalWhatsAppAluno} onClose={()=>setModalWhatsAppAluno(null)}/>
+        )}
+
+        {modalNovaMedicao&&(
+          <ModalNovaMedicao
+            sexo={a.sexo}
+            idade={a.idade}
+            onClose={()=>setModalNovaMedicao(false)}
+            onSalvar={async(novaMedicao)=>{
+              const novoHistorico = [...(a.historicoMedicoes||[]), novaMedicao];
+              try{
+                await salvarAluno(a.id, {historicoMedicoes:novoHistorico});
+              }catch(e){
+                console.error("Erro ao salvar medição:", e);
+              }
+              setSelected({...a, historicoMedicoes:novoHistorico});
+              setModalNovaMedicao(false);
+            }}
+          />
+        )}
+
+        {medicaoSelecionada&&(
+          <MedicaoDetalheModal
+            medicao={medicaoSelecionada}
+            sexo={a.sexo}
+            idade={a.idade}
+            podeEditar={podeEditar}
+            onClose={()=>setMedicaoSelecionada(null)}
+            onExcluir={async(medicaoId)=>{
+              const novoHistorico = (a.historicoMedicoes||[]).filter(m=>m.id!==medicaoId);
+              try{
+                await salvarAluno(a.id, {historicoMedicoes:novoHistorico});
+              }catch(e){
+                console.error("Erro ao excluir medição:", e);
+              }
+              setSelected({...a, historicoMedicoes:novoHistorico});
+            }}
+          />
         )}
       </div>
     );
