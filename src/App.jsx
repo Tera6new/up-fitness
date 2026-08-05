@@ -837,22 +837,30 @@ function ModalEditProf({prof, currentUserRole, onSave, onClose, onExcluir}){
   );
 }
 
-function StepBar({page,total,onSelect,editMode}){
-  const labels=[
-    {s:"Dados Pessoais",sub:"Anamnese"},
-    {s:"Antropometria",sub:"IMC, RCQ"},
-    {s:"Aval. Física",sub:"Dobras"},
-    {s:"Treino",sub:"Prescrição"},
+function StepBar({page,total,onSelect,editMode,paginasVisiveis}){
+  const labelsCompletos=[
+    {pg:1, s:"Dados Pessoais",sub:"Anamnese"},
+    {pg:2, s:"Antropometria",sub:"IMC, RCQ"},
+    {pg:3, s:"Aval. Física",sub:"Dobras"},
+    {pg:4, s:"Treino",sub:"Prescrição"},
   ];
+  // No modo edicao, Antropometria e Aval. Física passaram a ter telas
+  // proprias (Nova Medição / Nova Avaliação), entao nao fazem mais sentido
+  // como etapas do formulario de edicao — mostra so as paginas indicadas.
+  const labels = paginasVisiveis
+    ? labelsCompletos.filter(l=>paginasVisiveis.includes(l.pg))
+    : labelsCompletos.slice(0,total);
+
   return(
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:20}}>
-      {Array.from({length:total},(_,i)=>{
-        const done=i<page-1, active=i===page-1;
+      {labels.map((label,i)=>{
+        const pgDesteItem = label.pg;
+        const done=pgDesteItem<page, active=pgDesteItem===page;
         const clickable=editMode||done||active;
         const bc=active?C.accent:done?"#34d399":C.inputBorder;
         return(
-          <div key={i}
-            onClick={()=>onSelect&&clickable&&onSelect(i+1)}
+          <div key={pgDesteItem}
+            onClick={()=>onSelect&&clickable&&onSelect(pgDesteItem)}
             style={{background:active?C.accent+"18":done?"#34d39918":"transparent",
               border:"1px solid "+bc,borderRadius:10,padding:"10px 12px",
               display:"flex",alignItems:"center",gap:8,
@@ -868,8 +876,8 @@ function StepBar({page,total,onSelect,editMode}){
             <div style={{minWidth:0}}>
               <div style={{fontSize:12,fontWeight:700,
                 color:active?C.accent:done?"#34d399":C.muted,
-                overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{labels[i].s}</div>
-              <div style={{fontSize:10,color:"#8f9baa"}}>{labels[i].sub}</div>
+                overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label.s}</div>
+              <div style={{fontSize:10,color:"#8f9baa"}}>{label.sub}</div>
             </div>
           </div>
         );
@@ -5249,7 +5257,8 @@ export default function App(){
         <button style={css.btnA} onClick={save}>✓ Salvar</button>
       </header>
       <div style={css.wrap}>
-        <StepBar page={pg} total={4} onSelect={n=>{if(!form.nome.trim()&&n>1)return alert("Nome obrigatório.");setPg(n);}} editMode={!!editId}/>
+        <StepBar page={pg} total={4} onSelect={n=>{if(!form.nome.trim()&&n>1)return alert("Nome obrigatório.");setPg(n);}} editMode={!!editId}
+          paginasVisiveis={editId ? [1,4] : null}/>
 
         {/* ── PG 1: Dados + Anamnese ── */}
         {pg===1&&<>
