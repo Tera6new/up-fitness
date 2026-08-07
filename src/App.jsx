@@ -2768,8 +2768,22 @@ function mesclarLinhasComCarteira(linhasSalvas, prof, alunos){
 }
 
 // Tela da planilha propriamente dita, para um mes especifico ja selecionado
-function PlanilhaMesView({prof, mesAtivo, linhas, onUpdateLinhas, onVoltar, podeEditar, onBuscarOutroPeriodo, mostrarBotaoBuscar}){
+function PlanilhaMesView({prof, mesAtivo, linhas, alunos, onUpdateLinhas, onVoltar, podeEditar, onBuscarOutroPeriodo, mostrarBotaoBuscar}){
   const [confirmarRemover,setConfirmarRemover] = useState(null); // idx da linha a remover
+
+  // Mapa de alunoId -> ativo, para saber quais linhas pertencem a alunos
+  // inativados (exibidas em cinza, somente leitura, mas sem sumir do mes
+  // em que a inativacao ocorreu).
+  const statusAtivoPorAluno = {};
+  (alunos||[]).forEach(a=>{ statusAtivoPorAluno[a.id] = a.ativo!==false; });
+
+  // Ordena as linhas em ordem alfabetica pelo nome, mantendo o indice
+  // original de cada linha (necessario para editar/remover corretamente,
+  // ja que `linhas` no estado continua na ordem de criacao).
+  const linhasComIndice = linhas.map((l,idxOriginal)=>({...l, idxOriginal}));
+  const linhasOrdenadas = [...linhasComIndice].sort((a,b)=>
+    (a.nome||"").localeCompare(b.nome||"", 'pt-BR')
+  );
 
   const atualizarLinha = (idx, campo, valor)=>{
     if(!podeEditar) return;
@@ -2860,38 +2874,45 @@ function PlanilhaMesView({prof, mesAtivo, linhas, onUpdateLinhas, onVoltar, pode
             {podeEditar&&<div/>}
           </div>
 
-          {linhas.map((linha,idx)=>(
+          {linhasOrdenadas.map((linha,posicao)=>{
+            const idx = linha.idxOriginal; // indice real dentro de `linhas`, usado nos callbacks
+            const alunoInativo = linha.alunoId!=null && statusAtivoPorAluno[linha.alunoId]===false;
+            const podeEditarLinha = podeEditar && !alunoInativo;
+            return(
             <div key={linha.id} style={{display:"grid",gridTemplateColumns:podeEditar?"24px 1fr 76px 76px 28px":"24px 1fr 76px 76px",gap:4,
-              padding:"8px 8px",borderBottom:idx<linhas.length-1?"1px solid #1a1008":"none",
-              alignItems:"center",background:linha.pago?"#0a1a1010":"transparent"}}>
+              padding:"8px 8px",borderBottom:posicao<linhasOrdenadas.length-1?"1px solid #1a1008":"none",
+              alignItems:"center",background:alunoInativo?"#1a1a1a":(linha.pago?"#0a1a1010":"transparent"),
+              opacity:alunoInativo?0.6:1}}>
               <input type="checkbox" checked={!!linha.pago}
-                disabled={!podeEditar}
+                disabled={!podeEditarLinha}
                 onChange={e=>atualizarLinha(idx,"pago",e.target.checked)}
-                style={{width:18,height:18,accentColor:"#34d399",cursor:podeEditar?"pointer":"default",flexShrink:0,opacity:podeEditar?1:.7}}/>
+                style={{width:18,height:18,accentColor:alunoInativo?"#6b7280":"#34d399",cursor:podeEditarLinha?"pointer":"default",flexShrink:0,opacity:podeEditarLinha?1:.7}}/>
               <input value={linha.nome} onChange={e=>atualizarLinha(idx,"nome",e.target.value)}
-                placeholder="Nome" readOnly={!podeEditar}
-                style={{background:"transparent",border:"none",color:linha.pago?"#34d399":C.text,
+                placeholder="Nome" readOnly={!podeEditarLinha}
+                style={{background:"transparent",border:"none",color:alunoInativo?"#8f9baa":(linha.pago?"#34d399":C.text),
                   fontSize:16,fontWeight:600,outline:"none",fontFamily:"Inter,sans-serif",
                   textDecoration:linha.pago?"line-through":"none",padding:"4px 2px",
-                  width:"100%",minWidth:0,boxSizing:"border-box",cursor:podeEditar?"text":"default"}}/>
+                  width:"100%",minWidth:0,boxSizing:"border-box",cursor:podeEditarLinha?"text":"default"}}/>
               <input value={linha.plano} onChange={e=>atualizarLinha(idx,"plano",e.target.value)}
-                placeholder="Plano" readOnly={!podeEditar}
-                style={{background:"#121212",border:"1px solid #2a1a08",borderRadius:6,color:C.text,
+                placeholder="Plano" readOnly={!podeEditarLinha}
+                style={{background:alunoInativo?"#161616":"#121212",border:"1px solid #2a1a08",borderRadius:6,color:alunoInativo?"#8f9baa":C.text,
                   fontSize:16,outline:"none",fontFamily:"Inter,sans-serif",padding:"6px 4px",
-                  width:"100%",minWidth:0,boxSizing:"border-box",cursor:podeEditar?"text":"default"}}/>
+                  width:"100%",minWidth:0,boxSizing:"border-box",cursor:podeEditarLinha?"text":"default"}}/>
               <input value={linha.valor} onChange={e=>atualizarLinha(idx,"valor",e.target.value)}
-                placeholder="0,00" inputMode="decimal" readOnly={!podeEditar}
-                style={{background:"#121212",border:"1px solid #2a1a08",borderRadius:6,color:"#34d399",
+                placeholder="0,00" inputMode="decimal" readOnly={!podeEditarLinha}
+                style={{background:alunoInativo?"#161616":"#121212",border:"1px solid #2a1a08",borderRadius:6,color:alunoInativo?"#8f9baa":"#34d399",
                   fontSize:16,fontWeight:700,outline:"none",fontFamily:"Inter,sans-serif",padding:"6px 4px",
-                  width:"100%",minWidth:0,boxSizing:"border-box",textAlign:"right",cursor:podeEditar?"text":"default"}}/>
+                  width:"100%",minWidth:0,boxSizing:"border-box",textAlign:"right",cursor:podeEditarLinha?"text":"default"}}/>
               {podeEditar&&(
-                <button onClick={()=>setConfirmarRemover(idx)}
-                  style={{background:"#450a0a",color:"#fca5a5",border:"none",borderRadius:6,
-                    width:24,height:24,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",
-                    flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>×</button>
+                alunoInativo
+                  ? <div title="Aluno inativo" style={{width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"#6b7280",flexShrink:0}}>🔒</div>
+                  : <button onClick={()=>setConfirmarRemover(idx)}
+                      style={{background:"#450a0a",color:"#fca5a5",border:"none",borderRadius:6,
+                        width:24,height:24,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",
+                        flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>×</button>
               )}
             </div>
-          ))}
+          );})}
 
           {linhas.length===0&&(
             <div style={{textAlign:"center",color:C.muted,padding:"24px 0",fontSize:13}}>
@@ -3059,6 +3080,7 @@ function PagamentosView({prof, pagamentosDoProf, alunos, onUpdateMes, onVoltar, 
       prof={prof}
       mesAtivo={mesAtivo}
       linhas={linhas}
+      alunos={alunos}
       podeEditar={podeEditar}
       onVoltar={onVoltar}
       onUpdateLinhas={(novasLinhas)=>onUpdateMes(mesAtivo, novasLinhas)}
@@ -3142,7 +3164,7 @@ function PagamentosConsolidadoView({profissionais, pagamentos, onVoltar}){
         return s+(isNaN(v)?0:v);
       },0);
       return { prof, total, totalPago, qtdAlunos: linhas.length };
-    }).sort((a,b)=>b.total-a.total);
+    }).sort((a,b)=>a.prof.nome.localeCompare(b.prof.nome, 'pt-BR'));
   };
 
   // ── Busca: selecao de mes dentro de um ano ──
