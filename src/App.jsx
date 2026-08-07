@@ -426,7 +426,7 @@ const emptyForm = {
   doencas:"", medicamentos:"", cirurgias:"", lesoes:"", alergias:"",
   fumante:"Não", alcool:"Não", insonia:"Não", temDor:"Não", descDor:"",
   nivelEstresse:"Baixo", praticaEsporte:"", objetivoAnamnese:"",
-  ativo:true, foto:null,
+  ativo:true, foto:null, dataInativacao:null,
   plano:"", valorMensalidade:"", diaVencimento:"",
   peso:"", altura:"", pressao:"", cintura:"", quadril:"",
   cinturaEscapular:"", peitNormal:"", peitInspirado:"",
@@ -2723,8 +2723,12 @@ function montarLinhasIniciais(prof, alunos){
 
 // Mescla as linhas ja salvas de um mes com a carteira atual do profissional:
 // mantem os dados ja editados (valor, plano, pago) das linhas existentes, e
-// adiciona automaticamente alunos que passaram a fazer parte da carteira
-// depois (por transferencia ou novo cadastro) e ainda nao tem linha no mes.
+// adiciona automaticamente alunos ATIVOS que passaram a fazer parte da
+// carteira depois (por transferencia ou novo cadastro) e ainda nao tem linha
+// no mes. Alunos inativados NAO geram linha nova — mas se ja tinham uma
+// linha lancada antes da inativacao (ex: no mes em que foram inativados),
+// essa linha permanece intacta (assim o mes da inativacao continua
+// cobrando normalmente; so o mes seguinte deixa de gerar cobranca).
 // Linhas manuais (sem alunoId) e de alunos que saíram da carteira permanecem
 // intactas — a transferencia nunca apaga lancamentos ja feitos.
 function mesclarLinhasComCarteira(linhasSalvas, prof, alunos){
@@ -2748,6 +2752,7 @@ function mesclarLinhasComCarteira(linhasSalvas, prof, alunos){
 
   const idsJaNaPlanilha = new Set(linhasAtualizadas.filter(l=>l.alunoId).map(l=>l.alunoId));
   const novasLinhas = alunosDaCarteira
+    .filter(a=>a.ativo!==false) // alunos inativados nao ganham linha nova
     .filter(a=>!idsJaNaPlanilha.has(a.id))
     .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'))
     .map(a=>({
@@ -4115,7 +4120,7 @@ export default function App(){
     );
   }
 
-  const lista=useMemo(()=>[...alunosDoProf].filter(a=>a.nome.toLowerCase().includes(busca.toLowerCase())).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')),[alunosDoProf,busca]);
+  const lista=useMemo(()=>[...alunosDoProf].filter(a=>a.ativo!==false).filter(a=>a.nome.toLowerCase().includes(busca.toLowerCase())).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')),[alunosDoProf,busca]);
 
   useEffect(()=>{
     try{ localStorage.setItem('fittrack_alunos', JSON.stringify(alunos)); }
@@ -5011,6 +5016,56 @@ export default function App(){
     );
   }
 
+  // ── TELA ALUNOS INATIVOS ────────────────────────────────────────────────
+  if(view==="alunosInativos"){
+    const inativos = [...alunosDoProf]
+      .filter(a=>a.ativo===false)
+      .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+    return(
+      <div style={css.app}><GF/>
+        <header style={css.hdr}>
+          <button style={css.btnB} onClick={()=>setView("home")}>← Voltar</button>
+          <div style={{fontWeight:700,fontSize:15}}>Alunos Inativos</div>
+          <div style={{width:70}}/>
+        </header>
+        <div style={css.wrap}>
+          {inativos.length===0&&(
+            <div style={{textAlign:"center",color:C.muted,padding:40}}>Nenhum aluno inativo no momento.</div>
+          )}
+          <div style={{display:"grid",gap:10}}>
+            {inativos.map(a=>(
+              <div key={a.id} style={{...css.card,display:"flex",alignItems:"center",gap:14}}>
+                <Avatar nome={a.nome} foto={a.foto} size={44}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:15,color:C.text}}>{a.nome}</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                    {a.dataInativacao ? `Inativado em ${a.dataInativacao}` : "Data não registrada"}
+                  </div>
+                </div>
+                {podeEditar&&(
+                  <button
+                    onClick={async()=>{
+                      const upd = { ativo:true, dataInativacao:null };
+                      try{
+                        await salvarAluno(a.id, upd);
+                      }catch(e){
+                        console.error("Erro ao reativar aluno:", e);
+                      }
+                    }}
+                    style={{background:"#0a1a10",color:"#34d399",border:"1px solid #34d39960",
+                      borderRadius:8,padding:"8px 14px",fontWeight:700,fontSize:12,cursor:"pointer",
+                      fontFamily:"Inter,sans-serif",flexShrink:0}}>
+                    ✓ Reativar
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if(view==="home")return(
     <div style={css.app}><GF/>
       <header style={css.hdr}>
@@ -5031,11 +5086,11 @@ export default function App(){
       <div style={css.wrap}>
         <div style={{...css.row("1fr 1fr 1fr"),marginBottom:14}}>
           {[
-            {l:"Total",v:alunosDoProf.length,c:C.accent},
-            {l:"Ativos",v:alunosDoProf.filter(a=>a.ativo).length,c:C.green},
-            {l:"Inativos",v:alunosDoProf.filter(a=>!a.ativo).length,c:C.red}
+            {l:"Total",v:alunosDoProf.length,c:C.accent,click:null},
+            {l:"Ativos",v:alunosDoProf.filter(a=>a.ativo!==false).length,c:C.green,click:null},
+            {l:"Inativos",v:alunosDoProf.filter(a=>a.ativo===false).length,c:C.red,click:()=>setView("alunosInativos")}
           ].map(s=>(
-            <div key={s.l} style={css.stat(s.c)}>
+            <div key={s.l} onClick={s.click||undefined} style={{...css.stat(s.c),cursor:s.click?"pointer":"default"}}>
               <div style={{fontSize:20,fontWeight:800,color:s.c}}>{s.v}</div>
               <div style={{fontSize:10,color:C.muted,fontWeight:600}}>{s.l}</div>
             </div>
@@ -5493,6 +5548,30 @@ export default function App(){
                 {a.objetivoAnamnese&&<ReadField label="Objetivo" value={a.objetivoAnamnese}/>}
               </div>
             </div>
+            {podeEditar&&(
+              <button
+                onClick={async()=>{
+                  const inativando = a.ativo!==false;
+                  const upd = inativando
+                    ? { ativo:false, dataInativacao:new Date().toISOString().slice(0,10) }
+                    : { ativo:true, dataInativacao:null };
+                  try{
+                    await salvarAluno(a.id, upd);
+                  }catch(e){
+                    console.error("Erro ao alterar status do aluno:", e);
+                  }
+                  setSelected({...a, ...upd});
+                }}
+                style={{
+                  width:"100%", marginBottom:10, padding:"10px",
+                  background: a.ativo!==false ? "#1a0808" : "#0a1a10",
+                  color: a.ativo!==false ? "#f87171" : "#34d399",
+                  border:"1px solid "+(a.ativo!==false ? "#7f1d1d60" : "#34d39960"),
+                  borderRadius:9, fontWeight:600, fontSize:13, cursor:"pointer", fontFamily:"Inter,sans-serif",
+                }}>
+                {a.ativo!==false ? "Inativar aluno" : "✓ Reativar aluno"}
+              </button>
+            )}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               <button style={{background:"#1a1008",color:"#f97316",border:"1px solid #f9731640",borderRadius:9,padding:"10px",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif"}}
                 onClick={()=>setTransferModal(a)}>Transferir aluno</button>
