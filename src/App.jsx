@@ -2878,6 +2878,7 @@ function PlanilhaMesView({prof, mesAtivo, linhas, alunos, onUpdateLinhas, onVolt
             const idx = linha.idxOriginal; // indice real dentro de `linhas`, usado nos callbacks
             const alunoInativo = linha.alunoId!=null && statusAtivoPorAluno[linha.alunoId]===false;
             const podeEditarLinha = podeEditar && !alunoInativo;
+            const linhaTravada = !!linha.editadoManualmente;
             return(
             <div key={linha.id} style={{display:"grid",gridTemplateColumns:podeEditar?"24px 1fr 76px 76px 28px":"24px 1fr 76px 76px",gap:4,
               padding:"8px 8px",borderBottom:posicao<linhasOrdenadas.length-1?"1px solid #1a1008":"none",
@@ -2887,12 +2888,26 @@ function PlanilhaMesView({prof, mesAtivo, linhas, alunos, onUpdateLinhas, onVolt
                 disabled={!podeEditarLinha}
                 onChange={e=>atualizarLinha(idx,"pago",e.target.checked)}
                 style={{width:18,height:18,accentColor:alunoInativo?"#6b7280":"#34d399",cursor:podeEditarLinha?"pointer":"default",flexShrink:0,opacity:podeEditarLinha?1:.7}}/>
-              <input value={linha.nome} onChange={e=>atualizarLinha(idx,"nome",e.target.value)}
-                placeholder="Nome" readOnly={!podeEditarLinha}
-                style={{background:"transparent",border:"none",color:alunoInativo?"#8f9baa":(linha.pago?"#34d399":C.text),
-                  fontSize:16,fontWeight:600,outline:"none",fontFamily:"Inter,sans-serif",
-                  textDecoration:linha.pago?"line-through":"none",padding:"4px 2px",
-                  width:"100%",minWidth:0,boxSizing:"border-box",cursor:podeEditarLinha?"text":"default"}}/>
+              <div style={{display:"flex",alignItems:"center",gap:4,minWidth:0}}>
+                <input value={linha.nome} onChange={e=>atualizarLinha(idx,"nome",e.target.value)}
+                  placeholder="Nome" readOnly={!podeEditarLinha}
+                  style={{background:"transparent",border:"none",color:alunoInativo?"#8f9baa":(linha.pago?"#34d399":C.text),
+                    fontSize:16,fontWeight:600,outline:"none",fontFamily:"Inter,sans-serif",
+                    textDecoration:linha.pago?"line-through":"none",padding:"4px 2px",
+                    width:"100%",minWidth:0,boxSizing:"border-box",cursor:podeEditarLinha?"text":"default"}}/>
+                {podeEditarLinha&&linhaTravada&&(
+                  <button
+                    title="Valor editado manualmente. Toque para sincronizar de volta com a ficha do aluno."
+                    onClick={()=>{
+                      const novasLinhas = linhas.map((l,i)=> i===idx ? {...l, editadoManualmente:false} : l);
+                      onUpdateLinhas(novasLinhas);
+                    }}
+                    style={{background:"none",border:"none",color:"#fbbf24",fontSize:13,cursor:"pointer",
+                      flexShrink:0,padding:"2px 4px",display:"flex",alignItems:"center"}}>
+                    🔓
+                  </button>
+                )}
+              </div>
               <input value={linha.plano} onChange={e=>atualizarLinha(idx,"plano",e.target.value)}
                 placeholder="Plano" readOnly={!podeEditarLinha}
                 style={{background:alunoInativo?"#161616":"#121212",border:"1px solid #2a1a08",borderRadius:6,color:alunoInativo?"#8f9baa":C.text,
