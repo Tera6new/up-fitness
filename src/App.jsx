@@ -4491,8 +4491,60 @@ export default function App(){
                 onUpdateFotos={()=>{}}
               />
             </div>
+
+            <div style={{fontWeight:700,fontSize:13,color:C.sectionHdr,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>Medições</div>
+            {(() => {
+              const medicoes = [...(a.historicoMedicoes||[])].sort((x,y)=>y.data.localeCompare(x.data));
+              if(medicoes.length===0){
+                return(
+                  <div style={{...css.card,textAlign:"center",color:C.muted,padding:"20px 0",fontSize:13,marginBottom:16}}>
+                    Nenhuma medição registrada ainda.
+                  </div>
+                );
+              }
+              return(
+                <div style={{display:"grid",gap:10,marginBottom:16}}>
+                  {medicoes.map(m=>{
+                    const imcM = calcIMC(m.peso,m.altura);
+                    const imcCM = classIMC(imcM, a.sexo, a.idade);
+                    return(
+                      <button key={m.id} onClick={()=>setMedicaoSelecionada(m)}
+                        style={{background:C.card,border:"1px solid #2e1e0a",borderRadius:12,padding:"14px 16px",
+                          display:"flex",alignItems:"center",gap:14,cursor:"pointer",textAlign:"left",width:"100%",
+                          fontFamily:"Inter,sans-serif"}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontWeight:700,fontSize:14,color:C.text}}>{m.data}</div>
+                          <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                            {m.peso&&`${m.peso}kg`}{m.peso&&m.altura&&" · "}{m.altura&&`${m.altura}cm`}
+                          </div>
+                        </div>
+                        {imcM&&(
+                          <div style={{textAlign:"right"}}>
+                            <div style={{fontSize:16,fontWeight:800,color:imcCM.color}}>{imcM}</div>
+                            <div style={{fontSize:10,color:imcCM.color}}>IMC</div>
+                          </div>
+                        )}
+                        <span style={{color:C.accent,fontSize:20}}>›</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
             <AvaliacaoAlunoView aluno={a}/>
           </>}
+
+          {medicaoSelecionada&&(
+            <MedicaoDetalheModal
+              medicao={medicaoSelecionada}
+              sexo={a.sexo}
+              idade={a.idade}
+              podeEditar={false}
+              onClose={()=>setMedicaoSelecionada(null)}
+              onExcluir={()=>{}}
+            />
+          )}
 
           {/* ── OUVIDORIA ── */}
           {dTab==="ouvidoria"&&<OuvidoriaView aluno={a} prof={prof}/>}
