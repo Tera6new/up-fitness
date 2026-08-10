@@ -2788,10 +2788,19 @@ function PlanilhaMesView({prof, mesAtivo, linhas, alunos, onUpdateLinhas, onVolt
   const statusAtivoPorAluno = {};
   (alunos||[]).forEach(a=>{ statusAtivoPorAluno[a.id] = a.ativo!==false; });
 
+  // IDs de alunos que devem aparecer nesta planilha (ja vem filtrado pelo
+  // App.jsx conforme a aba Fixo/Comissao, quando o profissional tem vinculo
+  // misto). Linhas de alunos que nao estao mais nesse conjunto — por
+  // exemplo, porque foram movidos para a outra aba — ficam ocultas aqui,
+  // mesmo que ja existissem no documento salvo do mes. Linhas manuais (sem
+  // alunoId) continuam sempre visiveis, pois nao pertencem a nenhum aluno.
+  const idsAlunosPermitidos = new Set((alunos||[]).map(a=>a.id));
+  const linhasVisiveis = linhas.filter(l => !l.alunoId || idsAlunosPermitidos.has(l.alunoId));
+
   // Ordena as linhas em ordem alfabetica pelo nome, mantendo o indice
   // original de cada linha (necessario para editar/remover corretamente,
   // ja que `linhas` no estado continua na ordem de criacao).
-  const linhasComIndice = linhas.map((l,idxOriginal)=>({...l, idxOriginal}));
+  const linhasComIndice = linhasVisiveis.map((l)=>({...l, idxOriginal: linhas.indexOf(l)}));
   const linhasOrdenadas = [...linhasComIndice].sort((a,b)=>
     (a.nome||"").localeCompare(b.nome||"", 'pt-BR')
   );
