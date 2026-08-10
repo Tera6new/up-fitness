@@ -4189,8 +4189,12 @@ export default function App(){
   const u=(k,v)=>setForm(p=>({...p,[k]:v}));
 
   // ── FIX: salvarEditProf corrigido e centralizado ──────────────────────────
-  const salvarEditProf=(profAtualizado)=>{
-    setProfissionais(prev=>prev.map(p=>p.id===profAtualizado.id?profAtualizado:p));
+  const salvarEditProf=async(profAtualizado)=>{
+    try{
+      await salvarProfissional(profAtualizado.id, profAtualizado);
+    }catch(e){
+      console.error("Erro ao salvar edição do profissional:", e);
+    }
     if(currentUser?.id===profAtualizado.id) setCurrentUser(profAtualizado);
     // Atualiza profSelecionado se for o mesmo
     if(profSelecionado?.id===profAtualizado.id) setProfSelecionado(profAtualizado);
