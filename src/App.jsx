@@ -4643,16 +4643,20 @@ export default function App(){
 
   // ── TELA PAGAMENTOS (planilha do profissional selecionado) ───────────────
   if(view==="pagamentos"&&pagamentosProfSel){
-    const ehMisto = !!pagamentosProfSel.pagamentoMisto;
-    const pagamentosDoProf = pagamentos[pagamentosProfSel.id] || {};
+    // Busca a versao mais atual do profissional na lista sincronizada em
+    // tempo real, em vez de usar o objeto capturado no momento da selecao
+    // (que pode estar desatualizado, ex: apos marcar "vinculo misto").
+    const profAtualizado = profissionais.find(p=>p.id===pagamentosProfSel.id) || pagamentosProfSel;
+    const ehMisto = !!profAtualizado.pagamentoMisto;
+    const pagamentosDoProf = pagamentos[profAtualizado.id] || {};
     // Admin pode editar qualquer planilha; profissional so pode editar a propria.
-    const podeEditarPagamentos = currentUser?.role==="admin" || currentUser?.id===pagamentosProfSel.id;
+    const podeEditarPagamentos = currentUser?.role==="admin" || currentUser?.id===profAtualizado.id;
     // Para profissionais com vinculo misto, cada aluno tem um campo
     // tipoPagamento ("fixo" ou "comissao") definido na ficha dele. A aba
     // filtra quais alunos entram na mesclagem automatica da planilha —
     // sem isso, todos os alunos apareceriam nas duas abas.
     const alunosFiltrados = !ehMisto ? alunos : alunos.filter(a=>
-      a.profissionalId!==pagamentosProfSel.id || (a.tipoPagamento||"comissao")===abaPagamentoTipo
+      a.profissionalId!==profAtualizado.id || (a.tipoPagamento||"comissao")===abaPagamentoTipo
     );
     return(
       <div>
@@ -4669,7 +4673,7 @@ export default function App(){
           </div>
         )}
         <PagamentosView
-          prof={pagamentosProfSel}
+          prof={profAtualizado}
           pagamentosDoProf={pagamentosDoProf}
           alunos={alunosFiltrados}
           podeEditar={podeEditarPagamentos}
@@ -4679,7 +4683,7 @@ export default function App(){
               return;
             }
             try{
-              await atualizarMesPagamento(pagamentosProfSel.id, mes, novasLinhas);
+              await atualizarMesPagamento(profAtualizado.id, mes, novasLinhas);
             }catch(e){
               console.error("Erro ao atualizar pagamentos:", e);
             }
