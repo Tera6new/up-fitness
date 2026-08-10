@@ -426,7 +426,7 @@ const emptyForm = {
   doencas:"", medicamentos:"", cirurgias:"", lesoes:"", alergias:"",
   fumante:"Não", alcool:"Não", insonia:"Não", temDor:"Não", descDor:"",
   nivelEstresse:"Baixo", praticaEsporte:"", objetivoAnamnese:"",
-  ativo:true, foto:null, dataInativacao:null,
+  ativo:true, foto:null, dataInativacao:null, tipoPagamento:"comissao",
   plano:"", valorMensalidade:"", diaVencimento:"",
   peso:"", altura:"", pressao:"", cintura:"", quadril:"",
   cinturaEscapular:"", peitNormal:"", peitInspirado:"",
@@ -820,6 +820,17 @@ function ModalEditProf({prof, currentUserRole, onSave, onClose, onExcluir}){
                 <option value="admin">Administrador</option>
               </select>
             </div>
+          )}
+          {currentUserRole==="admin"&&(
+            <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer",background:"#1a1008",border:"1px solid #3d2010",borderRadius:10,padding:"12px 14px"}}>
+              <input type="checkbox" checked={!!dados.pagamentoMisto}
+                onChange={e=>setDados(p=>({...p,pagamentoMisto:e.target.checked}))}
+                style={{width:18,height:18,marginTop:2,accentColor:C.accent,cursor:"pointer",flexShrink:0}}/>
+              <div>
+                <div style={{fontSize:13,fontWeight:600,color:C.text}}>Vínculo misto (Fixo + Comissão)</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>Ative se este profissional recebe salário fixo em um horário e comissão por aluno em outro. A planilha de pagamentos dele ganha duas abas separadas.</div>
+              </div>
+            </label>
           )}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:currentUserRole==="admin"?10:0}}>
@@ -3909,6 +3920,7 @@ export default function App(){
   const [treinoAba,setTreinoAba]=useState('geral');
   const [agendaProfSel,setAgendaProfSel]=useState(null);
   const [pagamentosProfSel,setPagamentosProfSel]=useState(null);
+  const [abaPagamentoTipo,setAbaPagamentoTipo]=useState("fixo"); // "fixo" | "comissao", para profissionais com vinculo misto
   const [pagamentos,setPagamentos]=useState({});
 
   // Mantem todos os pagamentos sincronizados em tempo real com o Firestore.
@@ -4631,27 +4643,49 @@ export default function App(){
 
   // ── TELA PAGAMENTOS (planilha do profissional selecionado) ───────────────
   if(view==="pagamentos"&&pagamentosProfSel){
+    const ehMisto = !!pagamentosProfSel.pagamentoMisto;
     const pagamentosDoProf = pagamentos[pagamentosProfSel.id] || {};
     // Admin pode editar qualquer planilha; profissional so pode editar a propria.
     const podeEditarPagamentos = currentUser?.role==="admin" || currentUser?.id===pagamentosProfSel.id;
+    // Para profissionais com vinculo misto, cada aluno tem um campo
+    // tipoPagamento ("fixo" ou "comissao") definido na ficha dele. A aba
+    // filtra quais alunos entram na mesclagem automatica da planilha —
+    // sem isso, todos os alunos apareceriam nas duas abas.
+    const alunosFiltrados = !ehMisto ? alunos : alunos.filter(a=>
+      a.profissionalId!==pagamentosProfSel.id || (a.tipoPagamento||"comissao")===abaPagamentoTipo
+    );
     return(
-      <PagamentosView
-        prof={pagamentosProfSel}
-        pagamentosDoProf={pagamentosDoProf}
-        alunos={alunos}
-        podeEditar={podeEditarPagamentos}
-        onVoltar={()=>setView("pagamentosSelecao")}
-        onUpdateMes={async(mes, novasLinhas)=>{
-          if(!podeEditarPagamentos){
-            return;
-          }
-          try{
-            await atualizarMesPagamento(pagamentosProfSel.id, mes, novasLinhas);
-          }catch(e){
-            console.error("Erro ao atualizar pagamentos:", e);
-          }
-        }}
-      />
+      <div>
+        {ehMisto&&(
+          <div style={{...css.wrap,paddingBottom:0}}>
+            <div style={{display:"flex",gap:8,marginBottom:4}}>
+              {[{k:"fixo",l:"💼 Fixo"},{k:"comissao",l:"🤝 Comissão"}].map(t=>(
+                <button key={t.k} onClick={()=>setAbaPagamentoTipo(t.k)}
+                  style={{...css.tabBtn(abaPagamentoTipo===t.k,"#34d399"),flex:1,padding:"9px 4px",fontSize:12}}>
+                  {t.l}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <PagamentosView
+          prof={pagamentosProfSel}
+          pagamentosDoProf={pagamentosDoProf}
+          alunos={alunosFiltrados}
+          podeEditar={podeEditarPagamentos}
+          onVoltar={()=>{ setView("pagamentosSelecao"); setAbaPagamentoTipo("fixo"); }}
+          onUpdateMes={async(mes, novasLinhas)=>{
+            if(!podeEditarPagamentos){
+              return;
+            }
+            try{
+              await atualizarMesPagamento(pagamentosProfSel.id, mes, novasLinhas);
+            }catch(e){
+              console.error("Erro ao atualizar pagamentos:", e);
+            }
+          }}
+        />
+      </div>
     );
   }
 
@@ -5453,6 +5487,26 @@ export default function App(){
                 <Inp label="Valor (R$)" type="number" step="0.01" value={form.valorMensalidade||""} onChange={v=>u("valorMensalidade",v)} placeholder="150,00"/>
                 <Inp label="Vencimento" type="number" value={form.diaVencimento||""} onChange={v=>u("diaVencimento",v)} placeholder="Dia 10"/>
               </div>
+              {(()=>{
+                const profDoAluno = profissionais.find(p=>p.id===form.profissionalId);
+                if(!profDoAluno?.pagamentoMisto) return null;
+                return(
+                  <div style={{marginTop:12}}>
+                    <label style={css.lbl}>Recebimento deste aluno</label>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      {[{k:"fixo",l:"💼 Fixo"},{k:"comissao",l:"🤝 Comissão"}].map(t=>(
+                        <button key={t.k} type="button" onClick={()=>u("tipoPagamento",t.k)}
+                          style={{padding:"10px",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif",
+                            background:(form.tipoPagamento||"comissao")===t.k?"#34d39925":"#121212",
+                            border:"1px solid "+((form.tipoPagamento||"comissao")===t.k?"#34d399":"#2a1a08"),
+                            color:(form.tipoPagamento||"comissao")===t.k?"#34d399":C.muted}}>
+                          {t.l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
@@ -6857,6 +6911,7 @@ function AddProfForm({onSave,onCancel,forcarAdmin}){
   const [nome,setNome]=useState("");
   const [esp,setEsp]=useState("");
   const [role,setRole]=useState(forcarAdmin?"admin":"personal");
+  const [pagamentoMisto,setPagamentoMisto]=useState(false);
   const [email,setEmail]=useState("");
   const [senha,setSenha]=useState("");
   const [erro,setErro]=useState("");
@@ -6873,7 +6928,7 @@ function AddProfForm({onSave,onCancel,forcarAdmin}){
       // Cria a conta de autenticacao (email/senha) no Firebase
       const conta = await criarConta(email.trim(), senha);
       // Salva os dados do profissional no Firestore, usando o mesmo uid da conta
-      const dados = { nome, especialidade:esp, role, email:email.trim(), foto:null };
+      const dados = { nome, especialidade:esp, role, pagamentoMisto, email:email.trim(), foto:null };
       await salvarProfissional(conta.uid, dados);
       onSave({ ...dados, id: conta.uid });
     }catch(e){
@@ -6904,6 +6959,14 @@ function AddProfForm({onSave,onCancel,forcarAdmin}){
               </select>
             </div>
           )}
+          <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer",background:"#1a1008",border:"1px solid #3d2010",borderRadius:10,padding:"12px 14px"}}>
+            <input type="checkbox" checked={pagamentoMisto} onChange={e=>setPagamentoMisto(e.target.checked)}
+              style={{width:18,height:18,marginTop:2,accentColor:C.accent,cursor:"pointer",flexShrink:0}}/>
+            <div>
+              <div style={{fontSize:13,fontWeight:600,color:C.text}}>Vínculo misto (Fixo + Comissão)</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:2}}>Ative se este profissional recebe salário fixo em um horário e comissão por aluno em outro.</div>
+            </div>
+          </label>
         </div>
       </div>
 
