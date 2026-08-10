@@ -4192,9 +4192,7 @@ export default function App(){
   const salvarEditProf=async(profAtualizado)=>{
     try{
       await salvarProfissional(profAtualizado.id, profAtualizado);
-      alert("DIAGNOSTICO: Salvo com sucesso! id="+profAtualizado.id+" pagamentoMisto="+profAtualizado.pagamentoMisto);
     }catch(e){
-      alert("DIAGNOSTICO: ERRO ao salvar! "+e.message+" | code="+(e.code||"sem codigo"));
       console.error("Erro ao salvar edição do profissional:", e);
     }
     if(currentUser?.id===profAtualizado.id) setCurrentUser(profAtualizado);
