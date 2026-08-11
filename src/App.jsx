@@ -324,7 +324,10 @@ function alunoPagoNoMesAtual(aluno, pagamentos){
   if(!aluno?.profissionalId) return false;
   const mesAtual = chaveMesAtual();
   const linhasDoMes = pagamentos?.[aluno.profissionalId]?.[mesAtual] || [];
-  const linhaDoAluno = linhasDoMes.find(l=>l.alunoId===aluno.id);
+  // Compara como String() para evitar falso-negativo quando um dos lados
+  // e number e o outro e string (ja visto acontecer com ids de aluno em
+  // diferentes pontos do app).
+  const linhaDoAluno = linhasDoMes.find(l=>String(l.alunoId)===String(aluno.id));
   return !!linhaDoAluno?.pago;
 }
 
