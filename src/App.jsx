@@ -427,6 +427,17 @@ const emptyForm = {
   fumante:"Não", alcool:"Não", insonia:"Não", temDor:"Não", descDor:"",
   nivelEstresse:"Baixo", praticaEsporte:"", objetivoAnamnese:"",
   ativo:true, foto:null, dataInativacao:null, tipoPagamento:"comissao",
+  // Guarda compartilhada: aulasSemanaPrincipal e quantas aulas/semana o
+  // aluno faz com o profissional PRINCIPAL (profissionalId). So e relevante
+  // quando existe algum item em vinculosCompartilhados — usado para
+  // calcular a proporcao do valor da mensalidade entre os profissionais.
+  aulasSemanaPrincipal:1,
+  // Lista opcional de vinculos ADICIONAIS a outros profissionais (alem do
+  // profissionalId principal). Cada item tem {profissionalId, aulasSemana,
+  // tipoPagamento}. So usada quando o aluno e atendido por mais de um
+  // profissional — na maioria dos casos fica vazia e o profissionalId
+  // principal continua sendo a unica fonte.
+  vinculosCompartilhados:[],
   plano:"", valorMensalidade:"", diaVencimento:"",
   peso:"", altura:"", pressao:"", cintura:"", quadril:"",
   cinturaEscapular:"", peitNormal:"", peitInspirado:"",
@@ -2732,6 +2743,51 @@ function montarLinhasIniciais(prof, alunos){
     }));
 }
 
+// Retorna todos os "vinculos efetivos" de um aluno com profissionais —
+// normalmente so o profissional principal (profissionalId), mas em caso de
+// guarda compartilhada, tambem os profissionais extras listados em
+// vinculosCompartilhados. Cada vinculo ja vem com o valor PROPORCIONAL da
+// mensalidade calculado com base nas aulas/semana de cada um (ex: aluno
+// paga R$300, faz 2 aulas/semana com o Prof A e 1 com o Prof B — o
+// resultado tera dois vinculos: A com R$200 (2/3) e B com R$100 (1/3)).
+function calcularVinculosPagamento(aluno){
+  const valorTotal = parseFloat(String(aluno.valorMensalidade||"0").replace(",",".")) || 0;
+  const compartilhados = (aluno.vinculosCompartilhados||[]).filter(v=>v.profissionalId);
+
+  // Sem guarda compartilhada: um unico vinculo com o profissional principal,
+  // valor cheio — comportamento identico ao que ja existia antes.
+  if(compartilhados.length===0){
+    return [{
+      profissionalId: aluno.profissionalId,
+      valorProporcional: aluno.valorMensalidade||"",
+      tipoPagamento: aluno.tipoPagamento||"comissao",
+      aulasSemana: aluno.aulasSemanaPrincipal||1,
+    }];
+  }
+
+  // Com guarda compartilhada: soma as aulas/semana de todos os vinculos
+  // (principal + compartilhados) e divide o valor proporcionalmente.
+  const aulasPrincipal = parseFloat(aluno.aulasSemanaPrincipal)||1;
+  const totalAulas = compartilhados.reduce((soma,v)=>soma+(parseFloat(v.aulasSemana)||0), aulasPrincipal);
+
+  const vinculos = [{
+    profissionalId: aluno.profissionalId,
+    valorProporcional: totalAulas>0 ? (valorTotal*aulasPrincipal/totalAulas).toFixed(2) : "0.00",
+    tipoPagamento: aluno.tipoPagamento||"comissao",
+    aulasSemana: aulasPrincipal,
+  }];
+  compartilhados.forEach(v=>{
+    const aulas = parseFloat(v.aulasSemana)||0;
+    vinculos.push({
+      profissionalId: v.profissionalId,
+      valorProporcional: totalAulas>0 ? (valorTotal*aulas/totalAulas).toFixed(2) : "0.00",
+      tipoPagamento: v.tipoPagamento||"comissao",
+      aulasSemana: aulas,
+    });
+  });
+  return vinculos;
+}
+
 // Mescla as linhas ja salvas de um mes com a carteira atual do profissional:
 // mantem os dados ja editados (valor, plano, pago) das linhas existentes, e
 // adiciona automaticamente alunos ATIVOS que passaram a fazer parte da
@@ -2742,36 +2798,52 @@ function montarLinhasIniciais(prof, alunos){
 // cobrando normalmente; so o mes seguinte deixa de gerar cobranca).
 // Linhas manuais (sem alunoId) e de alunos que saíram da carteira permanecem
 // intactas — a transferencia nunca apaga lancamentos ja feitos.
+//
+// Guarda compartilhada: um aluno pode ter vinculo com MAIS de um
+// profissional (via vinculosCompartilhados). Cada profissional envolvido
+// recebe sua propria linha nessa planilha, com o valor PROPORCIONAL as
+// aulas/semana daquele vinculo especifico — nao o valor cheio da mensalidade.
 function mesclarLinhasComCarteira(linhasSalvas, prof, alunos){
   const base = linhasSalvas || [];
-  const alunosDaCarteira = alunos.filter(a=>a.profissionalId===prof.id);
-  const alunosPorId = {};
-  alunosDaCarteira.forEach(a=>{ alunosPorId[a.id]=a; });
+
+  // Para cada aluno, calcula os vinculos efetivos (principal + compartilhados)
+  // e filtra apenas os que envolvem ESTE profissional especificamente.
+  // alunosRelevantes: [{aluno, vinculo}] — um item por vinculo deste profissional.
+  const alunosRelevantes = [];
+  alunos.forEach(a=>{
+    const vinculos = calcularVinculosPagamento(a);
+    const vinculoDeste = vinculos.find(v=>v.profissionalId===prof.id);
+    if(vinculoDeste) alunosRelevantes.push({aluno:a, vinculo:vinculoDeste});
+  });
+
+  const relevantesPorAlunoId = {};
+  alunosRelevantes.forEach(r=>{ relevantesPorAlunoId[r.aluno.id]=r; });
 
   // Linhas ja existentes: se ainda nao foram editadas manualmente na
   // planilha (editadoManualmente !== true), continuam puxando o plano/valor
-  // mais recente da ficha do aluno. Assim que o profissional editar direto
-  // na planilha (ex: aplicar um desconto), a linha fica "travada" naquele
-  // valor e para de seguir a ficha — ate o mes seguinte, quando uma nova
-  // linha e criada do zero a partir da ficha novamente.
+  // (ja proporcional, em caso de guarda compartilhada) mais recente da
+  // ficha do aluno. Assim que o profissional editar direto na planilha
+  // (ex: aplicar um desconto), a linha fica "travada" naquele valor e para
+  // de seguir a ficha — ate o mes seguinte, quando uma nova linha e criada
+  // do zero a partir da ficha novamente.
   const linhasAtualizadas = base.map(l=>{
     if(!l.alunoId || l.editadoManualmente) return l;
-    const aluno = alunosPorId[l.alunoId];
-    if(!aluno) return l;
-    return { ...l, nome: aluno.nome, plano: aluno.plano||"", valor: aluno.valorMensalidade||"" };
+    const r = relevantesPorAlunoId[l.alunoId];
+    if(!r) return l;
+    return { ...l, nome: r.aluno.nome, plano: r.aluno.plano||"", valor: r.vinculo.valorProporcional };
   });
 
   const idsJaNaPlanilha = new Set(linhasAtualizadas.filter(l=>l.alunoId).map(l=>l.alunoId));
-  const novasLinhas = alunosDaCarteira
-    .filter(a=>a.ativo!==false) // alunos inativados nao ganham linha nova
-    .filter(a=>!idsJaNaPlanilha.has(a.id))
-    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'))
-    .map(a=>({
-      id: `aluno_${a.id}`,
-      alunoId: a.id,
-      nome: a.nome,
-      plano: a.plano||"",
-      valor: a.valorMensalidade||"",
+  const novasLinhas = alunosRelevantes
+    .filter(r=>r.aluno.ativo!==false) // alunos inativados nao ganham linha nova
+    .filter(r=>!idsJaNaPlanilha.has(r.aluno.id))
+    .sort((a,b)=>a.aluno.nome.localeCompare(b.aluno.nome,'pt-BR'))
+    .map(r=>({
+      id: `aluno_${r.aluno.id}`,
+      alunoId: r.aluno.id,
+      nome: r.aluno.nome,
+      plano: r.aluno.plano||"",
+      valor: r.vinculo.valorProporcional,
       pago: false,
       editadoManualmente: false,
     }));
@@ -4668,9 +4740,17 @@ export default function App(){
     // tipoPagamento ("fixo" ou "comissao") definido na ficha dele. A aba
     // filtra quais alunos entram na mesclagem automatica da planilha —
     // sem isso, todos os alunos apareceriam nas duas abas.
-    const alunosFiltrados = !ehMisto ? alunos : alunos.filter(a=>
-      a.profissionalId!==profAtualizado.id || (a.tipoPagamento||"comissao")===abaPagamentoTipo
-    );
+    // Para profissionais com vinculo misto, cada VINCULO (principal ou
+    // compartilhado) tem um tipoPagamento proprio ("fixo" ou "comissao").
+    // A aba filtra quais alunos entram na mesclagem automatica da planilha,
+    // considerando o vinculo especifico deste profissional com cada aluno
+    // (guarda compartilhada pode ter tipoPagamento diferente por vinculo).
+    const alunosFiltrados = !ehMisto ? alunos : alunos.filter(a=>{
+      const vinculos = calcularVinculosPagamento(a);
+      const vinculoDeste = vinculos.find(v=>v.profissionalId===profAtualizado.id);
+      if(!vinculoDeste) return true; // aluno sem vinculo com este prof: nao afeta o filtro
+      return vinculoDeste.tipoPagamento===abaPagamentoTipo;
+    });
     return(
       <div>
         {ehMisto&&(
@@ -5524,6 +5604,80 @@ export default function App(){
                   </div>
                 );
               })()}
+            </div>
+
+            {/* ── Guarda Compartilhada ── */}
+            <div style={{marginTop:4,background:"#0f0a1a",border:"1px solid #6366f130",borderRadius:10,padding:"14px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#a78bfa",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Guarda Compartilhada</div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:12,lineHeight:1.5}}>
+                Use quando este aluno é atendido por mais de um profissional. A mensalidade é dividida proporcionalmente pelas aulas/semana com cada um.
+              </div>
+
+              {(form.vinculosCompartilhados||[]).length>0&&(
+                <div style={{marginBottom:12}}>
+                  <label style={css.lbl}>Aulas/semana com {profissionais.find(p=>p.id===form.profissionalId)?.nome||"o profissional principal"}</label>
+                  <Inp type="number" min="0" step="1" value={form.aulasSemanaPrincipal||1}
+                    onChange={v=>u("aulasSemanaPrincipal", v)} placeholder="1"/>
+                </div>
+              )}
+
+              {(form.vinculosCompartilhados||[]).map((vinc,idx)=>{
+                const profExtra = profissionais.find(p=>p.id===vinc.profissionalId);
+                return(
+                  <div key={idx} style={{background:"#121212",border:"1px solid #2a1a08",borderRadius:8,padding:"10px 12px",marginBottom:8}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                      <span style={{fontSize:12,fontWeight:700,color:"#a78bfa"}}>Profissional adicional</span>
+                      <button type="button" onClick={()=>{
+                        const novaLista=(form.vinculosCompartilhados||[]).filter((_,i)=>i!==idx);
+                        u("vinculosCompartilhados", novaLista);
+                      }} style={{background:"#450a0a",color:"#fca5a5",border:"none",borderRadius:6,width:22,height:22,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>×</button>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:8,marginBottom:8}}>
+                      <select style={{...css.input,fontSize:16}} value={vinc.profissionalId||""}
+                        onChange={e=>{
+                          const novaLista=[...(form.vinculosCompartilhados||[])];
+                          novaLista[idx]={...novaLista[idx], profissionalId:e.target.value};
+                          u("vinculosCompartilhados", novaLista);
+                        }}>
+                        <option value="">-- Selecione --</option>
+                        {profissionais.filter(p=>p.id!==form.profissionalId).map(p=>(
+                          <option key={p.id} value={p.id}>{p.nome}</option>
+                        ))}
+                      </select>
+                      <Inp type="number" min="0" step="1" placeholder="Aulas/sem" value={vinc.aulasSemana||""}
+                        onChange={v=>{
+                          const novaLista=[...(form.vinculosCompartilhados||[])];
+                          novaLista[idx]={...novaLista[idx], aulasSemana:v};
+                          u("vinculosCompartilhados", novaLista);
+                        }}/>
+                    </div>
+                    {profExtra?.pagamentoMisto&&(
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                        {[{k:"fixo",l:"💼 Fixo"},{k:"comissao",l:"🤝 Comissão"}].map(t=>(
+                          <button key={t.k} type="button" onClick={()=>{
+                            const novaLista=[...(form.vinculosCompartilhados||[])];
+                            novaLista[idx]={...novaLista[idx], tipoPagamento:t.k};
+                            u("vinculosCompartilhados", novaLista);
+                          }} style={{padding:"8px",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif",
+                            background:(vinc.tipoPagamento||"comissao")===t.k?"#34d39925":"#161010",
+                            border:"1px solid "+((vinc.tipoPagamento||"comissao")===t.k?"#34d399":"#2a1a08"),
+                            color:(vinc.tipoPagamento||"comissao")===t.k?"#34d399":C.muted}}>
+                            {t.l}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              <button type="button" onClick={()=>{
+                const novaLista=[...(form.vinculosCompartilhados||[]), {profissionalId:"", aulasSemana:1, tipoPagamento:"comissao"}];
+                u("vinculosCompartilhados", novaLista);
+              }} style={{width:"100%",background:"transparent",border:"1px dashed #6366f160",color:"#a78bfa",
+                borderRadius:8,padding:"10px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                + Adicionar profissional
+              </button>
             </div>
           </div>
 
