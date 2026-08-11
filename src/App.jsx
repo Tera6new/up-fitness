@@ -5194,9 +5194,7 @@ export default function App(){
                       const updated = msgs.map(x=>x.id===m.id?{...x,resposta:texto,status:"Respondido"}:x);
                       try{
                         await adicionarMensagemOuvidoria(m.alunoId, updated);
-                        alert("DIAGNOSTICO: resposta salva! alunoId="+m.alunoId+" msgId="+m.id+" novoStatus=Respondido");
                       }catch(e){
-                        alert("DIAGNOSTICO: ERRO ao salvar resposta! "+e.message);
                         console.error("Erro ao salvar resposta:", e);
                       }
                     }}
