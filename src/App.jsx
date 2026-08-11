@@ -315,6 +315,19 @@ function statusMensalidade(diaVenc){
   return           {label:`Vence dia ${diaVenc}`, color:"#34d399", urgente:false};
 }
 
+// Verifica se o aluno ja foi marcado como "pago" na planilha de pagamentos
+// do mes atual, cruzando com os dados ja sincronizados do Firestore. Usado
+// para esconder o aviso de "Vencida" assim que o pagamento for lancado —
+// sem isso, o aviso continuaria aparecendo mesmo apos o pagamento, baseado
+// so no dia de vencimento cadastrado na ficha.
+function alunoPagoNoMesAtual(aluno, pagamentos){
+  if(!aluno?.profissionalId) return false;
+  const mesAtual = chaveMesAtual();
+  const linhasDoMes = pagamentos?.[aluno.profissionalId]?.[mesAtual] || [];
+  const linhaDoAluno = linhasDoMes.find(l=>l.alunoId===aluno.id);
+  return !!linhaDoAluno?.pago;
+}
+
 const NOME_STUDIO = "UP Fitness";
 const DIA_VENCIMENTO_PADRAO = 10; // todas as mensalidades vencem no mesmo dia
 const DESCONTO_ANTECIPACAO = 30; // R$ de desconto pagando ate o dia 08
@@ -4825,20 +4838,22 @@ export default function App(){
               display:"flex",alignItems:"center",gap:5,color:"#34d399",fontWeight:600,fontSize:12}}>
             📂
           </button>
-          {/* Botão Ouvidoria com badge */}
-          <button onClick={()=>setView("ouvidoriaAdmin")}
-            style={{position:"relative",background:"#0f0a1a",border:"1px solid #6366f140",
-              borderRadius:9,padding:"7px 12px",cursor:"pointer",fontFamily:"Inter,sans-serif",
-              display:"flex",alignItems:"center",gap:6,color:"#a78bfa",fontWeight:600,fontSize:12}}>
-            📣 Ouvidoria
-            {totalMsgs>0&&(
-              <span style={{position:"absolute",top:-6,right:-6,background:"#f87171",color:"#fff",
-                borderRadius:"50%",width:18,height:18,fontSize:10,fontWeight:800,
-                display:"flex",alignItems:"center",justifyContent:"center",border:"2px solid #0a0a0a"}}>
-                {totalMsgs>9?"9+":totalMsgs}
-              </span>
-            )}
-          </button>
+          {/* Botão Ouvidoria com badge — visível apenas para Admin */}
+          {currentUser?.role==="admin"&&(
+            <button onClick={()=>setView("ouvidoriaAdmin")}
+              style={{position:"relative",background:"#0f0a1a",border:"1px solid #6366f140",
+                borderRadius:9,padding:"7px 12px",cursor:"pointer",fontFamily:"Inter,sans-serif",
+                display:"flex",alignItems:"center",gap:6,color:"#a78bfa",fontWeight:600,fontSize:12}}>
+              📣 Ouvidoria
+              {totalMsgs>0&&(
+                <span style={{position:"absolute",top:-6,right:-6,background:"#f87171",color:"#fff",
+                  borderRadius:"50%",width:18,height:18,fontSize:10,fontWeight:800,
+                  display:"flex",alignItems:"center",justifyContent:"center",border:"2px solid #0a0a0a"}}>
+                  {totalMsgs>9?"9+":totalMsgs}
+                </span>
+              )}
+            </button>
+          )}
           <button style={css.btnB} onClick={sair}>Sair</button>
         </div>
       </header>
@@ -5079,6 +5094,13 @@ export default function App(){
 
   // ── TELA OUVIDORIA ADMIN ──────────────────────────────────────────────────
   if(view==="ouvidoriaAdmin"){
+    // Protecao extra: mesmo que o botao de acesso ja esteja escondido para
+    // quem nao e admin, garante que ninguem chegue nessa tela por outro
+    // caminho (ex: estado antigo de navegacao).
+    if(currentUser?.role!=="admin"){
+      setView("profissionais");
+      return null;
+    }
     // Coleta todas as mensagens de todos os alunos, a partir do estado ja
     // sincronizado em tempo real com o Firestore.
     const todasMsgs = alunos.flatMap(a=>{
@@ -5172,7 +5194,9 @@ export default function App(){
                       const updated = msgs.map(x=>x.id===m.id?{...x,resposta:texto,status:"Respondido"}:x);
                       try{
                         await adicionarMensagemOuvidoria(m.alunoId, updated);
+                        alert("DIAGNOSTICO: resposta salva! alunoId="+m.alunoId+" msgId="+m.id+" novoStatus=Respondido");
                       }catch(e){
+                        alert("DIAGNOSTICO: ERRO ao salvar resposta! "+e.message);
                         console.error("Erro ao salvar resposta:", e);
                       }
                     }}
@@ -5373,7 +5397,7 @@ export default function App(){
                     {im&&<span style={{fontSize:12,color:ic.color,fontWeight:700}}>IMC {im}</span>}
                     {a.peso&&<span style={{fontSize:12,color:"#c2cdd8"}}>{a.peso} kg</span>}
                     {a.frequencia&&<span style={{fontSize:12,color:"#c2cdd8"}}>{a.frequencia}/sem</span>}
-                    {(()=>{const s=statusMensalidade(a.diaVencimento);return s&&s.urgente?<span style={{fontSize:11,fontWeight:700,color:s.color}}>💳 {s.label}</span>:null;})()}
+                    {(()=>{const s=statusMensalidade(a.diaVencimento);const jaPago=alunoPagoNoMesAtual(a,pagamentos);return s&&s.urgente&&!jaPago?<span style={{fontSize:11,fontWeight:700,color:s.color}}>💳 {s.label}</span>:null;})()}
                   </div>
                 </div>
                 <span style={{color:"#3d2010",fontSize:20,flexShrink:0}}>›</span>
@@ -5894,7 +5918,11 @@ export default function App(){
 
             {/* ── Card Mensalidade ── */}
             {(a.diaVencimento||a.plano||a.valorMensalidade)&&(()=>{
-              const s=statusMensalidade(a.diaVencimento);
+              const sBruto=statusMensalidade(a.diaVencimento);
+              const jaPago=alunoPagoNoMesAtual(a,pagamentos);
+              // Se ja foi pago neste mes, nao mostra o alerta urgente (Vencida,
+              // Vence hoje, Vence em Xd) — mostra como "Pago este mês" em verde.
+              const s = jaPago && sBruto?.urgente ? {label:"Pago este mês", color:"#34d399", urgente:false} : sBruto;
               return(
                 <div style={{...css.card,border:"1px solid "+(s?.urgente?"#f8717140":"#34d39930"),background:s?.urgente?"#1a0808":"#0a1a10",marginTop:4}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
