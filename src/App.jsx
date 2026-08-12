@@ -4063,7 +4063,13 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
   const [pontos, setPontos] = useState(pontosExistentes||{});
   const [pontoAtivo, setPontoAtivo] = useState(null);
   const [processando, setProcessando] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({x:0, y:0});
+  const [arrastandoPonto, setArrastandoPonto] = useState(null); // chave do ponto sendo arrastado
+  const [arrastandoImagem, setArrastandoImagem] = useState(false);
+  const panInicioRef = useRef({x:0, y:0, panX:0, panY:0});
   const imgRef = useRef(null);
+  const containerRef = useRef(null);
 
   const listaPontos = tipo==="frente" ? PONTOS_FRENTE : PONTOS_PERFIL;
   const todosMarcados = listaPontos.every(p=>pontos[p.k]);
@@ -4075,24 +4081,85 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
       const base64 = await comprimirImagem(file, 900, 0.75);
       setFoto(base64);
       setPontos({});
+      setZoom(1);
+      setPan({x:0, y:0});
     }catch(e){
       alert("Erro ao processar a imagem. Tente outra foto.");
     }
     setProcessando(false);
   };
 
-  const marcarPonto = (e)=>{
-    if(!pontoAtivo || !imgRef.current) return;
+  // Converte a posicao de um toque/clique na tela para percentual (0-100)
+  // dentro da imagem original, levando em conta o zoom/pan aplicados.
+  const coordenadaParaPercentual = (clientX, clientY)=>{
     const rect = imgRef.current.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     const x = ((clientX - rect.left) / rect.width) * 100;
     const y = ((clientY - rect.top) / rect.height) * 100;
+    return { x: Math.max(0,Math.min(100,x)), y: Math.max(0,Math.min(100,y)) };
+  };
+
+  const marcarPonto = (e)=>{
+    if(arrastandoPonto || arrastandoImagem || arrasteRecenteRef.current) return; // evita marcar durante/logo apos um arraste
+    if(!pontoAtivo || !imgRef.current) return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const {x,y} = coordenadaParaPercentual(clientX, clientY);
     setPontos(prev=>({...prev, [pontoAtivo]: {x, y}}));
     // Avança automaticamente para o próximo ponto não marcado
     const idxAtual = listaPontos.findIndex(p=>p.k===pontoAtivo);
     const proximo = listaPontos.slice(idxAtual+1).find(p=>!pontos[p.k]);
     setPontoAtivo(proximo ? proximo.k : null);
+  };
+
+  // Inicia o arraste de um ponto já marcado, para reposicioná-lo
+  const iniciarArrastePonto = (e, chave)=>{
+    e.stopPropagation();
+    setArrastandoPonto(chave);
+  };
+
+  const moverArraste = (e)=>{
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+    if(arrastandoPonto && imgRef.current){
+      const {x,y} = coordenadaParaPercentual(clientX, clientY);
+      setPontos(prev=>({...prev, [arrastandoPonto]: {x, y}}));
+      return;
+    }
+    if(arrastandoImagem){
+      const dx = clientX - panInicioRef.current.x;
+      const dy = clientY - panInicioRef.current.y;
+      setPan({ x: panInicioRef.current.panX + dx, y: panInicioRef.current.panY + dy });
+    }
+  };
+
+  const arrasteRecenteRef = useRef(false);
+
+  const finalizarArraste = ()=>{
+    if(arrastandoPonto || arrastandoImagem){
+      arrasteRecenteRef.current = true;
+      setTimeout(()=>{ arrasteRecenteRef.current = false; }, 150);
+    }
+    setArrastandoPonto(null);
+    setArrastandoImagem(false);
+  };
+
+  // Arraste da imagem (pan) — só ativa quando não está tocando em um ponto,
+  // e só quando o zoom está ativo (senão não faz sentido mover).
+  const iniciarArrasteImagem = (e)=>{
+    if(zoom<=1) return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    panInicioRef.current = { x: clientX, y: clientY, panX: pan.x, panY: pan.y };
+    setArrastandoImagem(true);
+  };
+
+  const ajustarZoom = (delta)=>{
+    setZoom(z=>{
+      const novo = Math.max(1, Math.min(3, z+delta));
+      if(novo===1) setPan({x:0,y:0}); // reseta o pan ao voltar pro zoom normal
+      return novo;
+    });
   };
 
   return(
@@ -4123,39 +4190,74 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
           </div>
         ) : (
           <>
-            <div style={{position:"relative",width:"100%",maxWidth:340,margin:"0 auto",borderRadius:12,overflow:"hidden",border:"1px solid #2a1a08"}}>
-              <img ref={imgRef} src={foto} alt={tipo}
-                onClick={marcarPonto}
-                style={{width:"100%",display:"block",cursor:pontoAtivo?"crosshair":"default"}}/>
-
-              {/* Pontos já marcados */}
-              {listaPontos.map(p=>{
-                const pt = pontos[p.k];
-                if(!pt) return null;
-                return(
-                  <div key={p.k} style={{position:"absolute",left:pt.x+"%",top:pt.y+"%",
-                    width:14,height:14,marginLeft:-7,marginTop:-7,borderRadius:"50%",
-                    background:pontoAtivo===p.k?C.accent:"#34d399",border:"2px solid #fff",
-                    boxShadow:"0 0 6px #000",pointerEvents:"none"}}/>
-                );
-              })}
-
-              {/* Linhas de conexão entre pares (frente) */}
-              {tipo==="frente"&&(
-                <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",pointerEvents:"none"}}>
-                  {PONTOS_FRENTE.filter((p,i)=>i%2===0).map(p=>{
-                    const pe=pontos[p.k], pd=pontos[p.par];
-                    if(!pe||!pd) return null;
-                    return <line key={p.k} x1={pe.x+"%"} y1={pe.y+"%"} x2={pd.x+"%"} y2={pd.y+"%"} stroke="#fbbf24" strokeWidth="2" strokeDasharray="4,3"/>;
-                  })}
-                </svg>
+            {/* Controles de zoom */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:10}}>
+              <button onClick={()=>ajustarZoom(-0.5)} disabled={zoom<=1}
+                style={{background:"#1c1c1c",border:"1px solid #332010",color:zoom<=1?C.muted:C.text,
+                  borderRadius:8,width:36,height:36,fontSize:18,fontWeight:700,cursor:zoom<=1?"default":"pointer",
+                  fontFamily:"Inter,sans-serif"}}>−</button>
+              <div style={{fontSize:12,color:C.muted,minWidth:44,textAlign:"center"}}>{Math.round(zoom*100)}%</div>
+              <button onClick={()=>ajustarZoom(0.5)} disabled={zoom>=3}
+                style={{background:"#1c1c1c",border:"1px solid #332010",color:zoom>=3?C.muted:C.text,
+                  borderRadius:8,width:36,height:36,fontSize:18,fontWeight:700,cursor:zoom>=3?"default":"pointer",
+                  fontFamily:"Inter,sans-serif"}}>+</button>
+              {zoom>1&&(
+                <span style={{fontSize:10,color:"#e8cba8",marginLeft:6}}>Arraste a foto p/ mover</span>
               )}
-              {/* Linha vertical de referência (perfil) */}
-              {tipo==="perfil"&&pontos.tornozelo&&(
-                <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",pointerEvents:"none"}}>
-                  <line x1={pontos.tornozelo.x+"%"} y1="0%" x2={pontos.tornozelo.x+"%"} y2="100%" stroke="#fbbf24" strokeWidth="2" strokeDasharray="4,3"/>
-                </svg>
-              )}
+            </div>
+
+            <div ref={containerRef}
+              style={{position:"relative",width:"100%",maxWidth:340,margin:"0 auto",borderRadius:12,
+                overflow:"hidden",border:"1px solid #2a1a08",touchAction:"none"}}
+              onMouseDown={e=>{ if(zoom>1 && !arrastandoPonto) iniciarArrasteImagem(e); }}
+              onMouseMove={moverArraste}
+              onMouseUp={finalizarArraste}
+              onMouseLeave={finalizarArraste}
+              onTouchStart={e=>{ if(zoom>1 && !arrastandoPonto) iniciarArrasteImagem(e); }}
+              onTouchMove={moverArraste}
+              onTouchEnd={finalizarArraste}>
+              <div style={{transform:`translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                transformOrigin:"center center",transition:arrastandoImagem||arrastandoPonto?"none":"transform .15s"}}>
+                <img ref={imgRef} src={foto} alt={tipo}
+                  onClick={marcarPonto}
+                  draggable={false}
+                  style={{width:"100%",display:"block",cursor:pontoAtivo?"crosshair":(zoom>1?"grab":"default"),userSelect:"none"}}/>
+
+                {/* Pontos já marcados — arrastáveis para reposicionar */}
+                {listaPontos.map(p=>{
+                  const pt = pontos[p.k];
+                  if(!pt) return null;
+                  return(
+                    <div key={p.k}
+                      onMouseDown={e=>iniciarArrastePonto(e,p.k)}
+                      onTouchStart={e=>iniciarArrastePonto(e,p.k)}
+                      style={{position:"absolute",left:pt.x+"%",top:pt.y+"%",
+                        width:22,height:22,marginLeft:-11,marginTop:-11,borderRadius:"50%",
+                        background:pontoAtivo===p.k?C.accent:"#34d399",border:"2px solid #fff",
+                        boxShadow:"0 0 6px #000",cursor:"grab",
+                        display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <div style={{width:6,height:6,borderRadius:"50%",background:"#fff"}}/>
+                    </div>
+                  );
+                })}
+
+                {/* Linhas de conexão entre pares (frente) */}
+                {tipo==="frente"&&(
+                  <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",pointerEvents:"none"}}>
+                    {PONTOS_FRENTE.filter((p,i)=>i%2===0).map(p=>{
+                      const pe=pontos[p.k], pd=pontos[p.par];
+                      if(!pe||!pd) return null;
+                      return <line key={p.k} x1={pe.x+"%"} y1={pe.y+"%"} x2={pd.x+"%"} y2={pd.y+"%"} stroke="#fbbf24" strokeWidth="2" strokeDasharray="4,3"/>;
+                    })}
+                  </svg>
+                )}
+                {/* Linha vertical de referência (perfil) */}
+                {tipo==="perfil"&&pontos.tornozelo&&(
+                  <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",pointerEvents:"none"}}>
+                    <line x1={pontos.tornozelo.x+"%"} y1="0%" x2={pontos.tornozelo.x+"%"} y2="100%" stroke="#fbbf24" strokeWidth="2" strokeDasharray="4,3"/>
+                  </svg>
+                )}
+              </div>
             </div>
 
             <div style={{marginTop:16,marginBottom:12}}>
