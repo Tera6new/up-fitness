@@ -467,6 +467,7 @@ const emptyForm = {
   gordura:"", massaMagra:"",
   historicoAvaliacoes:[],
   historicoMedicoes:[],
+  historicoPostural:[],
   frequencia:"", nivelExperiencia:"", dataInicioTreino:"",
   diasTreino:[], horariosTreino:{},
   exerciciosContra:"", obsTreino:"",
@@ -3917,6 +3918,571 @@ function RespostaOuvidoriaForm({respostaAtual, onSalvar}){
   );
 }
 
+// ── ANALISE POSTURAL ──────────────────────────────────────────────────────
+// Pontos marcados manualmente pelo profissional em cada foto (frente/perfil),
+// usados para calcular desalinhamentos e desvios posturais. Cada ponto e um
+// {x,y} em percentual da imagem (0-100), o que mantem a marcacao correta
+// independente do tamanho de tela em que a foto é exibida.
+
+const PONTOS_FRENTE = [
+  {k:"ombroE", l:"Ombro esquerdo", par:"ombroD"},
+  {k:"ombroD", l:"Ombro direito", par:"ombroE"},
+  {k:"quadrilE", l:"Quadril esquerdo", par:"quadrilD"},
+  {k:"quadrilD", l:"Quadril direito", par:"quadrilE"},
+  {k:"joelhoE", l:"Joelho esquerdo", par:"joelhoD"},
+  {k:"joelhoD", l:"Joelho direito", par:"joelhoE"},
+  {k:"tornozeloE", l:"Tornozelo esquerdo", par:"tornozeloD"},
+  {k:"tornozeloD", l:"Tornozelo direito", par:"tornozeloE"},
+];
+
+const PONTOS_PERFIL = [
+  {k:"orelha", l:"Orelha"},
+  {k:"ombro", l:"Ombro"},
+  {k:"quadril", l:"Quadril"},
+  {k:"joelho", l:"Joelho"},
+  {k:"tornozelo", l:"Tornozelo (referência)"},
+];
+
+// Calcula o diagnostico da foto de FRENTE: para cada par de pontos (ombros,
+// quadris, joelhos, tornozelos), compara a altura (Y) dos dois lados — se a
+// diferenca for pequena, esta nivelado; se for grande, ha inclinacao,
+// indicando o lado mais alto.
+function diagnosticoFrente(pontos){
+  const pares = [
+    {chave:"ombros", e:"ombroE", d:"ombroD", label:"Ombros"},
+    {chave:"quadris", e:"quadrilE", d:"quadrilD", label:"Quadris"},
+    {chave:"joelhos", e:"joelhoE", d:"joelhoD", label:"Joelhos"},
+    {chave:"tornozelos", e:"tornozeloE", d:"tornozeloD", label:"Tornozelos"},
+  ];
+  return pares.map(p=>{
+    const pe = pontos[p.e], pd = pontos[p.d];
+    if(!pe || !pd) return {chave:p.chave, label:p.label, status:"sem-dados"};
+    const diffY = pe.y - pd.y; // positivo = esquerdo mais baixo (y maior = mais para baixo na tela)
+    const diffAbs = Math.abs(diffY);
+    let status, diagnostico, ladoAlto;
+    if(diffAbs < 1.0){
+      status = "normal";
+      diagnostico = "Nivelado — sem desvio significativo.";
+    } else if(diffAbs < 2.5){
+      status = "leve";
+      ladoAlto = diffY > 0 ? "direito" : "esquerdo";
+      diagnostico = `Leve inclinação — lado ${ladoAlto} ligeiramente mais alto.`;
+    } else {
+      status = "atencao";
+      ladoAlto = diffY > 0 ? "direito" : "esquerdo";
+      diagnostico = `Inclinação perceptível — lado ${ladoAlto} mais alto. Recomenda-se atenção.`;
+    }
+    return {chave:p.chave, label:p.label, status, diagnostico, diferenca:diffAbs.toFixed(1)};
+  });
+}
+
+// Calcula o diagnostico da foto de PERFIL: usa o tornozelo como base da
+// linha vertical de referencia, e mede o desvio horizontal (X) de cada
+// ponto acima em relacao a essa linha.
+function diagnosticoPerfil(pontos){
+  const base = pontos.tornozelo;
+  if(!base) return [];
+  const pontosSuperiores = [
+    {chave:"orelha", k:"orelha", label:"Cabeça (orelha)"},
+    {chave:"ombro", k:"ombro", label:"Ombro"},
+    {chave:"quadril", k:"quadril", label:"Quadril"},
+    {chave:"joelho", k:"joelho", label:"Joelho"},
+  ];
+  return pontosSuperiores.map(p=>{
+    const pt = pontos[p.k];
+    if(!pt) return {chave:p.chave, label:p.label, status:"sem-dados"};
+    const diffX = pt.x - base.x; // positivo = a frente da linha, negativo = atras
+    const diffAbs = Math.abs(diffX);
+    let status, diagnostico, direcao;
+    if(diffAbs < 1.5){
+      status = "normal";
+      diagnostico = "Alinhado com a linha de referência.";
+    } else if(diffAbs < 3.5){
+      status = "leve";
+      direcao = diffX > 0 ? "à frente" : "atrás";
+      diagnostico = `Leve desvio ${direcao} da linha vertical.`;
+    } else {
+      status = "atencao";
+      direcao = diffX > 0 ? "à frente" : "atrás";
+      diagnostico = `Desvio perceptível ${direcao} da linha vertical. Recomenda-se atenção.`;
+    }
+    return {chave:p.chave, label:p.label, status, diagnostico, diferenca:diffAbs.toFixed(1)};
+  });
+}
+
+const CORES_STATUS_POSTURAL = {
+  normal: "#34d399",
+  leve: "#fbbf24",
+  atencao: "#f87171",
+  "sem-dados": "#6b7280",
+};
+const LABELS_STATUS_POSTURAL = {
+  normal: "Normal",
+  leve: "Atenção leve",
+  atencao: "Requer atenção",
+  "sem-dados": "Sem dados",
+};
+
+// Componente de guia visual sobreposto durante a captura da foto — ajuda o
+// profissional a alinhar o aluno corretamente antes de tirar a foto.
+function GuiaEnquadramento({tipo}){
+  // tipo: "frente" ou "perfil" — desenha uma silhueta simplificada em SVG.
+  return(
+    <svg viewBox="0 0 200 400" style={{position:"absolute",inset:0,width:"100%",height:"100%",pointerEvents:"none",opacity:0.35}}>
+      {tipo==="frente" ? (
+        <g stroke="#34d399" strokeWidth="2" fill="none">
+          <circle cx="100" cy="40" r="22"/>
+          <line x1="100" y1="62" x2="100" y2="180"/>
+          <line x1="60" y1="90" x2="100" y2="80"/>
+          <line x1="140" y1="90" x2="100" y2="80"/>
+          <line x1="70" y1="180" x2="70" y2="280"/>
+          <line x1="130" y1="180" x2="130" y2="280"/>
+          <line x1="70" y1="280" x2="70" y2="370"/>
+          <line x1="130" y1="280" x2="130" y2="370"/>
+          <line x1="60" y1="180" x2="140" y2="180"/>
+        </g>
+      ) : (
+        <g stroke="#34d399" strokeWidth="2" fill="none">
+          <circle cx="100" cy="40" r="22"/>
+          <line x1="100" y1="62" x2="95" y2="180"/>
+          <line x1="60" y1="100" x2="100" y2="80"/>
+          <line x1="95" y1="180" x2="95" y2="280"/>
+          <line x1="95" y1="280" x2="90" y2="370"/>
+          <line x1="90" y1="370" x2="90" y2="0" strokeDasharray="4,4" opacity="0.5"/>
+        </g>
+      )}
+    </svg>
+  );
+}
+
+// Tela de captura de uma foto (frente ou perfil) com guia de enquadramento
+// sobreposto. Depois de tirar/escolher a foto, permite marcar os pontos
+// anatômicos tocando diretamente na imagem.
+function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, onClose}){
+  const [foto, setFoto] = useState(fotoExistente||null);
+  const [pontos, setPontos] = useState(pontosExistentes||{});
+  const [pontoAtivo, setPontoAtivo] = useState(null);
+  const [processando, setProcessando] = useState(false);
+  const imgRef = useRef(null);
+
+  const listaPontos = tipo==="frente" ? PONTOS_FRENTE : PONTOS_PERFIL;
+  const todosMarcados = listaPontos.every(p=>pontos[p.k]);
+
+  const handleUpload = async (file)=>{
+    if(!file) return;
+    setProcessando(true);
+    try{
+      const base64 = await comprimirImagem(file, 900, 0.75);
+      setFoto(base64);
+      setPontos({});
+    }catch(e){
+      alert("Erro ao processar a imagem. Tente outra foto.");
+    }
+    setProcessando(false);
+  };
+
+  const marcarPonto = (e)=>{
+    if(!pontoAtivo || !imgRef.current) return;
+    const rect = imgRef.current.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const x = ((clientX - rect.left) / rect.width) * 100;
+    const y = ((clientY - rect.top) / rect.height) * 100;
+    setPontos(prev=>({...prev, [pontoAtivo]: {x, y}}));
+    // Avança automaticamente para o próximo ponto não marcado
+    const idxAtual = listaPontos.findIndex(p=>p.k===pontoAtivo);
+    const proximo = listaPontos.slice(idxAtual+1).find(p=>!pontos[p.k]);
+    setPontoAtivo(proximo ? proximo.k : null);
+  };
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"#000000f5",zIndex:600,display:"flex",flexDirection:"column"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px",borderBottom:"1px solid #2a1a08"}}>
+        <div style={{fontWeight:800,fontSize:15,color:C.accent}}>
+          📐 {tipo==="frente"?"Foto de Frente":"Foto de Perfil"}
+        </div>
+        <button onClick={onClose}
+          style={{background:"#1c1c1c",border:"1px solid #332010",color:C.text,borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>✕</button>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:16}}>
+        {!foto ? (
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"60vh"}}>
+            <div style={{position:"relative",width:"100%",maxWidth:280,aspectRatio:"1/2",background:"#121212",border:"1px dashed #3d2010",borderRadius:14,marginBottom:20,overflow:"hidden"}}>
+              <GuiaEnquadramento tipo={tipo}/>
+              <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:8,padding:20,textAlign:"center"}}>
+                <span style={{fontSize:32}}>📷</span>
+                <span style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Alinhe o aluno com a silhueta guia e tire a foto</span>
+              </div>
+            </div>
+            <label style={{...css.btnA,cursor:"pointer",padding:"12px 24px"}}>
+              {processando?"Processando...":"Tirar / Escolher Foto"}
+              <input type="file" accept="image/*" capture="environment" style={{display:"none"}}
+                onChange={e=>handleUpload(e.target.files[0])} disabled={processando}/>
+            </label>
+          </div>
+        ) : (
+          <>
+            <div style={{position:"relative",width:"100%",maxWidth:340,margin:"0 auto",borderRadius:12,overflow:"hidden",border:"1px solid #2a1a08"}}>
+              <img ref={imgRef} src={foto} alt={tipo}
+                onClick={marcarPonto}
+                style={{width:"100%",display:"block",cursor:pontoAtivo?"crosshair":"default"}}/>
+
+              {/* Pontos já marcados */}
+              {listaPontos.map(p=>{
+                const pt = pontos[p.k];
+                if(!pt) return null;
+                return(
+                  <div key={p.k} style={{position:"absolute",left:pt.x+"%",top:pt.y+"%",
+                    width:14,height:14,marginLeft:-7,marginTop:-7,borderRadius:"50%",
+                    background:pontoAtivo===p.k?C.accent:"#34d399",border:"2px solid #fff",
+                    boxShadow:"0 0 6px #000",pointerEvents:"none"}}/>
+                );
+              })}
+
+              {/* Linhas de conexão entre pares (frente) */}
+              {tipo==="frente"&&(
+                <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",pointerEvents:"none"}}>
+                  {PONTOS_FRENTE.filter((p,i)=>i%2===0).map(p=>{
+                    const pe=pontos[p.k], pd=pontos[p.par];
+                    if(!pe||!pd) return null;
+                    return <line key={p.k} x1={pe.x+"%"} y1={pe.y+"%"} x2={pd.x+"%"} y2={pd.y+"%"} stroke="#fbbf24" strokeWidth="2" strokeDasharray="4,3"/>;
+                  })}
+                </svg>
+              )}
+              {/* Linha vertical de referência (perfil) */}
+              {tipo==="perfil"&&pontos.tornozelo&&(
+                <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",pointerEvents:"none"}}>
+                  <line x1={pontos.tornozelo.x+"%"} y1="0%" x2={pontos.tornozelo.x+"%"} y2="100%" stroke="#fbbf24" strokeWidth="2" strokeDasharray="4,3"/>
+                </svg>
+              )}
+            </div>
+
+            <div style={{marginTop:16,marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#e8cba8",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>
+                Marque os pontos ({Object.keys(pontos).length}/{listaPontos.length})
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                {listaPontos.map(p=>{
+                  const marcado = !!pontos[p.k];
+                  const ativo = pontoAtivo===p.k;
+                  return(
+                    <button key={p.k} onClick={()=>setPontoAtivo(p.k)}
+                      style={{background:ativo?C.accent+"25":marcado?"#0a1a10":"#161010",
+                        border:"1px solid "+(ativo?C.accent:marcado?"#34d39960":"#2a1a08"),
+                        borderRadius:8,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:"pointer",
+                        fontFamily:"Inter,sans-serif",color:ativo?C.accent:marcado?"#34d399":C.muted,
+                        display:"flex",alignItems:"center",gap:6,textAlign:"left"}}>
+                      {marcado?"✓":"○"} {p.l}
+                    </button>
+                  );
+                })}
+              </div>
+              {pontoAtivo&&(
+                <div style={{marginTop:10,background:"#1a1008",border:"1px solid "+C.accent+"40",borderRadius:8,padding:"10px 12px",fontSize:12,color:C.text}}>
+                  👆 Toque na foto para marcar: <strong>{listaPontos.find(p=>p.k===pontoAtivo)?.l}</strong>
+                </div>
+              )}
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <label style={{...css.btnB,cursor:"pointer",textAlign:"center"}}>
+                Trocar foto
+                <input type="file" accept="image/*" capture="environment" style={{display:"none"}}
+                  onChange={e=>handleUpload(e.target.files[0])}/>
+              </label>
+              <button onClick={()=>onSalvar({foto, pontos})} disabled={!todosMarcados}
+                style={{...css.btnA,opacity:todosMarcados?1:.5}}>
+                {todosMarcados?"Salvar":`Faltam ${listaPontos.length-Object.keys(pontos).length}`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Card clicável de diagnóstico de um ponto analisado
+function CardDiagnosticoPostural({item, onClick}){
+  const cor = CORES_STATUS_POSTURAL[item.status];
+  return(
+    <button onClick={onClick}
+      style={{background:C.card,border:"1px solid "+cor+"40",borderRadius:12,padding:"14px 16px",
+        display:"flex",alignItems:"center",gap:12,cursor:"pointer",width:"100%",textAlign:"left",
+        fontFamily:"Inter,sans-serif"}}>
+      <div style={{width:10,height:10,borderRadius:"50%",background:cor,flexShrink:0}}/>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:700,fontSize:14,color:C.text}}>{item.label}</div>
+        <div style={{fontSize:11,color:cor,fontWeight:600,marginTop:2}}>{LABELS_STATUS_POSTURAL[item.status]}</div>
+      </div>
+      <span style={{color:C.muted,fontSize:18}}>›</span>
+    </button>
+  );
+}
+
+// Modal de detalhe de um ponto específico, com o diagnóstico completo
+function ModalDetalhePostural({item, onClose}){
+  const cor = CORES_STATUS_POSTURAL[item.status];
+  return(
+    <div style={{position:"fixed",inset:0,background:"#000000ee",zIndex:700,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:C.card,border:"1px solid "+cor+"50",borderRadius:16,padding:24,width:"100%",maxWidth:380}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontWeight:800,fontSize:16,color:cor}}>{item.label}</div>
+          <button onClick={onClose}
+            style={{background:"#1c1c1c",border:"1px solid #332010",color:C.text,borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>✕</button>
+        </div>
+        <div style={{background:cor+"15",border:"1px solid "+cor+"30",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:700,color:cor,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>
+            {LABELS_STATUS_POSTURAL[item.status]}
+          </div>
+          <div style={{fontSize:14,color:C.text,lineHeight:1.6}}>{item.diagnostico}</div>
+        </div>
+        {item.diferenca&&(
+          <div style={{fontSize:12,color:C.muted}}>Desvio medido: {item.diferenca}% da imagem</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Gerencia o histórico de análises posturais de um aluno: registros por
+// data, cada um com foto de frente + perfil, pontos marcados e diagnóstico
+// calculado automaticamente a partir deles.
+function AnalisePosturalView({registros, podeEditar, onSalvarRegistro, onExcluirRegistro}){
+  const [modalNovoAberto, setModalNovoAberto] = useState(false);
+  const [etapaCaptura, setEtapaCaptura] = useState(null); // "frente" | "perfil" | null
+  const [dadosFrente, setDadosFrente] = useState(null);
+  const [dadosPerfil, setDadosPerfil] = useState(null);
+  const [novaData, setNovaData] = useState(()=>new Date().toISOString().slice(0,10));
+  const [registroSelecionado, setRegistroSelecionado] = useState(null);
+  const [itemDetalhe, setItemDetalhe] = useState(null);
+  const [confirmarRemover, setConfirmarRemover] = useState(null);
+  const [salvando, setSalvando] = useState(false);
+
+  const lista = [...(registros||[])].sort((a,b)=> b.data.localeCompare(a.data));
+
+  const formatarData = (iso)=>{
+    if(!iso) return "";
+    const [ano,mes,dia] = iso.split("-");
+    return `${dia}/${mes}/${ano}`;
+  };
+
+  const iniciarNovo = ()=>{
+    setDadosFrente(null);
+    setDadosPerfil(null);
+    setNovaData(new Date().toISOString().slice(0,10));
+    setModalNovoAberto(true);
+  };
+
+  const salvarRegistroCompleto = async ()=>{
+    if(!dadosFrente && !dadosPerfil) return;
+    setSalvando(true);
+    const diagFrente = dadosFrente ? diagnosticoFrente(dadosFrente.pontos) : [];
+    const diagPerfil = dadosPerfil ? diagnosticoPerfil(dadosPerfil.pontos) : [];
+    const registro = {
+      id: Date.now(),
+      data: novaData,
+      fotoFrente: dadosFrente?.foto||null,
+      pontosFrente: dadosFrente?.pontos||null,
+      diagnosticoFrente: diagFrente,
+      fotoPerfil: dadosPerfil?.foto||null,
+      pontosPerfil: dadosPerfil?.pontos||null,
+      diagnosticoPerfil: diagPerfil,
+    };
+    await onSalvarRegistro(registro);
+    setSalvando(false);
+    setModalNovoAberto(false);
+    setDadosFrente(null);
+    setDadosPerfil(null);
+  };
+
+  return(
+    <div style={css.card}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+        <div style={css.secHdr}>Análise Postural</div>
+        {podeEditar&&(
+          <button onClick={iniciarNovo}
+            style={{background:C.accent,color:"#0a0a0a",border:"none",borderRadius:8,
+              padding:"7px 12px",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+            + Nova Análise
+          </button>
+        )}
+      </div>
+
+      {lista.length===0&&(
+        <div style={{textAlign:"center",color:C.muted,padding:"20px 0",fontSize:13}}>
+          Nenhuma análise postural registrada ainda.
+        </div>
+      )}
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(90px,1fr))",gap:8}}>
+        {lista.map(reg=>{
+          const capa = reg.fotoFrente || reg.fotoPerfil;
+          const todosItens = [...(reg.diagnosticoFrente||[]), ...(reg.diagnosticoPerfil||[])];
+          const temAtencao = todosItens.some(i=>i.status==="atencao");
+          return(
+            <button key={reg.id} onClick={()=>setRegistroSelecionado(reg)}
+              style={{background:"#121212",border:"1px solid "+(temAtencao?"#f8717160":"#2a1a08"),borderRadius:10,
+                overflow:"hidden",cursor:"pointer",padding:0,position:"relative",aspectRatio:"1"}}>
+              {capa
+                ? <img src={capa} alt={formatarData(reg.data)} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:24}}>📐</div>
+              }
+              <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,#000000cc)",
+                padding:"12px 6px 4px",fontSize:9,color:"#fff",fontWeight:700}}>
+                {formatarData(reg.data)}
+              </div>
+              {temAtencao&&(
+                <div style={{position:"absolute",top:4,right:4,background:"#f87171",color:"#fff",
+                  borderRadius:5,padding:"1px 5px",fontSize:9,fontWeight:700}}>
+                  !
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Modal: novo registro (captura das 2 fotos) */}
+      {modalNovoAberto&&(
+        <div style={{position:"fixed",inset:0,background:"#000000ee",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:C.card,border:"1px solid #332010",borderRadius:16,padding:20,width:"100%",maxWidth:420,maxHeight:"85vh",overflowY:"auto"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+              <div style={{fontWeight:800,fontSize:16,color:C.accent}}>📐 Nova Análise Postural</div>
+              <button onClick={()=>setModalNovoAberto(false)}
+                style={{background:"#1c1c1c",border:"1px solid #332010",color:C.text,borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>✕</button>
+            </div>
+
+            <div style={{marginBottom:16}}>
+              <DateScrollPicker label="Data da análise" value={novaData} onChange={setNovaData}/>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+              <button onClick={()=>setEtapaCaptura("frente")}
+                style={{background:dadosFrente?"#0a1a10":"#121212",border:"1px solid "+(dadosFrente?"#34d39960":"#3d2010"),
+                  borderRadius:10,padding:"16px 10px",cursor:"pointer",fontFamily:"Inter,sans-serif",
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+                {dadosFrente
+                  ? <img src={dadosFrente.foto} alt="Frente" style={{width:"100%",aspectRatio:"3/4",objectFit:"cover",borderRadius:6}}/>
+                  : <span style={{fontSize:26}}>🧍</span>
+                }
+                <span style={{fontSize:12,fontWeight:700,color:dadosFrente?"#34d399":C.muted}}>
+                  {dadosFrente?"✓ Frente":"Foto de Frente"}
+                </span>
+              </button>
+              <button onClick={()=>setEtapaCaptura("perfil")}
+                style={{background:dadosPerfil?"#0a1a10":"#121212",border:"1px solid "+(dadosPerfil?"#34d39960":"#3d2010"),
+                  borderRadius:10,padding:"16px 10px",cursor:"pointer",fontFamily:"Inter,sans-serif",
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+                {dadosPerfil
+                  ? <img src={dadosPerfil.foto} alt="Perfil" style={{width:"100%",aspectRatio:"3/4",objectFit:"cover",borderRadius:6}}/>
+                  : <span style={{fontSize:26}}>🚶</span>
+                }
+                <span style={{fontSize:12,fontWeight:700,color:dadosPerfil?"#34d399":C.muted}}>
+                  {dadosPerfil?"✓ Perfil":"Foto de Perfil"}
+                </span>
+              </button>
+            </div>
+
+            <button onClick={salvarRegistroCompleto} disabled={(!dadosFrente&&!dadosPerfil)||salvando}
+              style={{...css.btnA,width:"100%",padding:"13px",fontSize:14,opacity:((!dadosFrente&&!dadosPerfil)||salvando)?.6:1}}>
+              {salvando?"Salvando...":"Salvar Análise"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Captura de foto (frente ou perfil), sobreposta ao modal de novo registro */}
+      {etapaCaptura&&(
+        <CapturaPosturalView
+          tipo={etapaCaptura}
+          fotoExistente={etapaCaptura==="frente" ? dadosFrente?.foto : dadosPerfil?.foto}
+          pontosExistentes={etapaCaptura==="frente" ? dadosFrente?.pontos : dadosPerfil?.pontos}
+          onClose={()=>setEtapaCaptura(null)}
+          onSalvar={(dados)=>{
+            if(etapaCaptura==="frente") setDadosFrente(dados);
+            else setDadosPerfil(dados);
+            setEtapaCaptura(null);
+          }}
+        />
+      )}
+
+      {/* Modal: visualizar registro já salvo */}
+      {registroSelecionado&&(
+        <div style={{position:"fixed",inset:0,background:"#000000ee",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:C.card,border:"1px solid #332010",borderRadius:16,padding:20,width:"100%",maxWidth:440,maxHeight:"85vh",overflowY:"auto"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+              <div style={{fontWeight:800,fontSize:16,color:C.accent}}>{formatarData(registroSelecionado.data)}</div>
+              <button onClick={()=>setRegistroSelecionado(null)}
+                style={{background:"#1c1c1c",border:"1px solid #332010",color:C.text,borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>✕</button>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:18}}>
+              {registroSelecionado.fotoFrente&&(
+                <img src={registroSelecionado.fotoFrente} alt="Frente" style={{width:"100%",aspectRatio:"3/4",objectFit:"cover",borderRadius:8,border:"1px solid #2a1a08"}}/>
+              )}
+              {registroSelecionado.fotoPerfil&&(
+                <img src={registroSelecionado.fotoPerfil} alt="Perfil" style={{width:"100%",aspectRatio:"3/4",objectFit:"cover",borderRadius:8,border:"1px solid #2a1a08"}}/>
+              )}
+            </div>
+
+            {registroSelecionado.diagnosticoFrente?.length>0&&(
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#e8cba8",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Vista Frontal</div>
+                <div style={{display:"grid",gap:8}}>
+                  {registroSelecionado.diagnosticoFrente.map(item=>(
+                    <CardDiagnosticoPostural key={item.chave} item={item} onClick={()=>setItemDetalhe(item)}/>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {registroSelecionado.diagnosticoPerfil?.length>0&&(
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#e8cba8",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Vista Lateral</div>
+                <div style={{display:"grid",gap:8}}>
+                  {registroSelecionado.diagnosticoPerfil.map(item=>(
+                    <CardDiagnosticoPostural key={item.chave} item={item} onClick={()=>setItemDetalhe(item)}/>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {podeEditar&&(
+              <button onClick={()=>setConfirmarRemover(registroSelecionado.id)}
+                style={{width:"100%",background:"transparent",border:"1px solid #7f1d1d60",color:"#f87171",
+                  borderRadius:9,padding:"11px",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                Excluir análise
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {itemDetalhe&&(
+        <ModalDetalhePostural item={itemDetalhe} onClose={()=>setItemDetalhe(null)}/>
+      )}
+
+      {confirmarRemover!==null&&(
+        <div style={{position:"fixed",inset:0,zIndex:600}}>
+          <Modal title="Excluir análise postural?" onClose={()=>setConfirmarRemover(null)}
+            onConfirm={()=>{
+              onExcluirRegistro(confirmarRemover);
+              setConfirmarRemover(null);
+              setRegistroSelecionado(null);
+            }}
+            confirmLabel="Excluir" danger>
+            <p style={{color:C.muted,fontSize:13,textAlign:"center",margin:"6px 0"}}>
+              As fotos e o diagnóstico desse registro serão removidos permanentemente.
+            </p>
+          </Modal>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── APP ───────────────────────────────────────────────────────────────────────
 export default function App(){
   // Detecta se o app foi aberto via link de convite (?token=...) — nesse caso,
@@ -6079,6 +6645,31 @@ export default function App(){
                     console.error("Erro ao salvar fotos de evolução:", e);
                   }
                   setSelected(upd);
+                }}
+              />
+            </div>
+
+            <div style={{marginTop:12}}>
+              <AnalisePosturalView
+                registros={a.historicoPostural||[]}
+                podeEditar={podeEditar}
+                onSalvarRegistro={async(novoRegistro)=>{
+                  const novoHistorico = [...(a.historicoPostural||[]), novoRegistro];
+                  try{
+                    await salvarAluno(a.id, {historicoPostural:novoHistorico});
+                  }catch(e){
+                    console.error("Erro ao salvar análise postural:", e);
+                  }
+                  setSelected({...a, historicoPostural:novoHistorico});
+                }}
+                onExcluirRegistro={async(registroId)=>{
+                  const novoHistorico = (a.historicoPostural||[]).filter(r=>r.id!==registroId);
+                  try{
+                    await salvarAluno(a.id, {historicoPostural:novoHistorico});
+                  }catch(e){
+                    console.error("Erro ao excluir análise postural:", e);
+                  }
+                  setSelected({...a, historicoPostural:novoHistorico});
                 }}
               />
             </div>
