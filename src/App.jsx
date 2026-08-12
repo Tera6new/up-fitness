@@ -4134,8 +4134,6 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
     }
   };
 
-  const arrasteRecenteRef = useRef(false);
-
   const finalizarArraste = ()=>{
     if(arrastandoPonto || arrastandoImagem){
       arrasteRecenteRef.current = true;
