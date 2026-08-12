@@ -4068,6 +4068,7 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
   const [arrastandoPonto, setArrastandoPonto] = useState(null); // chave do ponto sendo arrastado
   const [arrastandoImagem, setArrastandoImagem] = useState(false);
   const panInicioRef = useRef({x:0, y:0, panX:0, panY:0});
+  const arrasteRecenteRef = useRef(false);
   const imgRef = useRef(null);
   const containerRef = useRef(null);
 
@@ -4162,6 +4163,46 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
     });
   };
 
+  // ── Zoom por pinça (dois dedos), padrão em apps de foto no celular ──
+  const pinchDistRef = useRef(null);
+  const pinchZoomInicialRef = useRef(1);
+
+  const distanciaEntreTouches = (touches)=>{
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx*dx + dy*dy);
+  };
+
+  const handleTouchStart = (e)=>{
+    if(e.touches.length===2){
+      // Início do gesto de pinça: guarda a distância inicial e o zoom atual
+      pinchDistRef.current = distanciaEntreTouches(e.touches);
+      pinchZoomInicialRef.current = zoom;
+      setArrastandoImagem(false);
+      setArrastandoPonto(null);
+      return;
+    }
+    if(zoom>1 && !arrastandoPonto) iniciarArrasteImagem(e);
+  };
+
+  const handleTouchMove = (e)=>{
+    if(e.touches.length===2 && pinchDistRef.current){
+      e.preventDefault();
+      const distAtual = distanciaEntreTouches(e.touches);
+      const fator = distAtual / pinchDistRef.current;
+      const novoZoom = Math.max(1, Math.min(3, pinchZoomInicialRef.current * fator));
+      setZoom(novoZoom);
+      if(novoZoom===1) setPan({x:0,y:0});
+      return;
+    }
+    moverArraste(e);
+  };
+
+  const handleTouchEnd = (e)=>{
+    if(e.touches.length<2) pinchDistRef.current = null;
+    finalizarArraste();
+  };
+
   return(
     <div style={{position:"fixed",inset:0,background:"#000000f5",zIndex:600,display:"flex",flexDirection:"column"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px",borderBottom:"1px solid #2a1a08"}}>
@@ -4213,9 +4254,9 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
               onMouseMove={moverArraste}
               onMouseUp={finalizarArraste}
               onMouseLeave={finalizarArraste}
-              onTouchStart={e=>{ if(zoom>1 && !arrastandoPonto) iniciarArrasteImagem(e); }}
-              onTouchMove={moverArraste}
-              onTouchEnd={finalizarArraste}>
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}>
               <div style={{transform:`translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 transformOrigin:"center center",transition:arrastandoImagem||arrastandoPonto?"none":"transform .15s"}}>
                 <img ref={imgRef} src={foto} alt={tipo}
