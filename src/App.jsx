@@ -3771,7 +3771,7 @@ function GaleriaFotosEvolucao({fotos, onUpdateFotos, podeEditar}){
                     }
                   </div>
                   <div style={{fontSize:10,textAlign:"center",color:C.muted,fontWeight:600}}>{ang.l}</div>
-                  <input type="file" accept="image/*" capture="environment" style={{display:"none"}}
+                  <input type="file" accept="image/*" style={{display:"none"}}
                     onChange={e=>handleUpload(ang.k, e.target.files[0])}/>
                 </label>
               ))}
@@ -4223,7 +4223,7 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
             </div>
             <label style={{...css.btnA,cursor:"pointer",padding:"12px 24px"}}>
               {processando?"Processando...":"Tirar / Escolher Foto"}
-              <input type="file" accept="image/*" capture="environment" style={{display:"none"}}
+              <input type="file" accept="image/*" style={{display:"none"}}
                 onChange={e=>handleUpload(e.target.files[0])} disabled={processando}/>
             </label>
           </div>
@@ -4329,7 +4329,7 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               <label style={{...css.btnB,cursor:"pointer",textAlign:"center"}}>
                 Trocar foto
-                <input type="file" accept="image/*" capture="environment" style={{display:"none"}}
+                <input type="file" accept="image/*" style={{display:"none"}}
                   onChange={e=>handleUpload(e.target.files[0])}/>
               </label>
               <button onClick={()=>onSalvar({foto, pontos})} disabled={!todosMarcados}
@@ -4340,6 +4340,57 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// Exibe uma foto (frente ou perfil) já registrada, desenhando por cima as
+// linhas de referência calculadas a partir dos pontos marcados — reaproveita
+// a mesma lógica visual usada durante a marcação, mas em modo estático
+// (sem interação), para a visualização de um registro já salvo.
+function FotoPosturalComLinhas({tipo, foto, pontos}){
+  if(!foto) return null;
+  return(
+    <div style={{position:"relative",width:"100%",borderRadius:8,overflow:"hidden",border:"1px solid #2a1a08"}}>
+      <img src={foto} alt={tipo} style={{width:"100%",aspectRatio:"3/4",objectFit:"cover",display:"block"}}/>
+      {pontos&&(
+        <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",pointerEvents:"none"}}>
+          {tipo==="frente" && PONTOS_FRENTE.filter((p,i)=>i%2===0).map(p=>{
+            const pe=pontos[p.k], pd=pontos[p.par];
+            if(!pe||!pd) return null;
+            return <line key={p.k} x1={pe.x+"%"} y1={pe.y+"%"} x2={pd.x+"%"} y2={pd.y+"%"} stroke="#fbbf24" strokeWidth="2" strokeDasharray="4,3"/>;
+          })}
+          {tipo==="perfil" && pontos.tornozelo && (
+            <line x1={pontos.tornozelo.x+"%"} y1="0%" x2={pontos.tornozelo.x+"%"} y2="100%" stroke="#fbbf24" strokeWidth="2" strokeDasharray="4,3"/>
+          )}
+          {Object.entries(pontos).map(([chave,pt])=>(
+            <circle key={chave} cx={pt.x+"%"} cy={pt.y+"%"} r="5" fill="#34d399" stroke="#fff" strokeWidth="1.5"/>
+          ))}
+        </svg>
+      )}
+    </div>
+  );
+}
+
+// Fileira horizontal e rolável de cards de diagnóstico — usada para exibir
+// os pontos analisados de uma foto (frente ou perfil) lado a lado.
+function FileiraCardsPostural({itens, onSelecionar}){
+  if(!itens || itens.length===0) return null;
+  return(
+    <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:4,WebkitOverflowScrolling:"touch"}}>
+      {itens.map(item=>{
+        const cor = CORES_STATUS_POSTURAL[item.status];
+        return(
+          <button key={item.chave} onClick={()=>onSelecionar(item)}
+            style={{background:C.card,border:"1px solid "+cor+"40",borderRadius:10,padding:"10px 12px",
+              cursor:"pointer",fontFamily:"Inter,sans-serif",flexShrink:0,minWidth:110,
+              display:"flex",flexDirection:"column",alignItems:"flex-start",gap:4}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:cor}}/>
+            <div style={{fontWeight:700,fontSize:11,color:C.text,whiteSpace:"nowrap"}}>{item.label}</div>
+            <div style={{fontSize:10,color:cor,fontWeight:600}}>{LABELS_STATUS_POSTURAL[item.status]}</div>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -4397,6 +4448,7 @@ function AnalisePosturalView({registros, podeEditar, onSalvarRegistro, onExcluir
   const [dadosPerfil, setDadosPerfil] = useState(null);
   const [novaData, setNovaData] = useState(()=>new Date().toISOString().slice(0,10));
   const [registroSelecionado, setRegistroSelecionado] = useState(null);
+  const [editandoRegistroId, setEditandoRegistroId] = useState(null); // id do registro sendo editado, ou null se for criacao
   const [itemDetalhe, setItemDetalhe] = useState(null);
   const [confirmarRemover, setConfirmarRemover] = useState(null);
   const [salvando, setSalvando] = useState(false);
@@ -4410,9 +4462,19 @@ function AnalisePosturalView({registros, podeEditar, onSalvarRegistro, onExcluir
   };
 
   const iniciarNovo = ()=>{
+    setEditandoRegistroId(null);
     setDadosFrente(null);
     setDadosPerfil(null);
     setNovaData(new Date().toISOString().slice(0,10));
+    setModalNovoAberto(true);
+  };
+
+  const iniciarEdicao = (registro)=>{
+    setEditandoRegistroId(registro.id);
+    setDadosFrente(registro.fotoFrente ? {foto:registro.fotoFrente, pontos:registro.pontosFrente||{}} : null);
+    setDadosPerfil(registro.fotoPerfil ? {foto:registro.fotoPerfil, pontos:registro.pontosPerfil||{}} : null);
+    setNovaData(registro.data);
+    setRegistroSelecionado(null);
     setModalNovoAberto(true);
   };
 
@@ -4422,7 +4484,7 @@ function AnalisePosturalView({registros, podeEditar, onSalvarRegistro, onExcluir
     const diagFrente = dadosFrente ? diagnosticoFrente(dadosFrente.pontos) : [];
     const diagPerfil = dadosPerfil ? diagnosticoPerfil(dadosPerfil.pontos) : [];
     const registro = {
-      id: Date.now(),
+      id: editandoRegistroId || Date.now(),
       data: novaData,
       fotoFrente: dadosFrente?.foto||null,
       pontosFrente: dadosFrente?.pontos||null,
@@ -4431,9 +4493,10 @@ function AnalisePosturalView({registros, podeEditar, onSalvarRegistro, onExcluir
       pontosPerfil: dadosPerfil?.pontos||null,
       diagnosticoPerfil: diagPerfil,
     };
-    await onSalvarRegistro(registro);
+    await onSalvarRegistro(registro, editandoRegistroId);
     setSalvando(false);
     setModalNovoAberto(false);
+    setEditandoRegistroId(null);
     setDadosFrente(null);
     setDadosPerfil(null);
   };
@@ -4490,7 +4553,7 @@ function AnalisePosturalView({registros, podeEditar, onSalvarRegistro, onExcluir
         <div style={{position:"fixed",inset:0,background:"#000000ee",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div style={{background:C.card,border:"1px solid #332010",borderRadius:16,padding:20,width:"100%",maxWidth:420,maxHeight:"85vh",overflowY:"auto"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-              <div style={{fontWeight:800,fontSize:16,color:C.accent}}>📐 Nova Análise Postural</div>
+              <div style={{fontWeight:800,fontSize:16,color:C.accent}}>📐 {editandoRegistroId?"Editar Análise Postural":"Nova Análise Postural"}</div>
               <button onClick={()=>setModalNovoAberto(false)}
                 style={{background:"#1c1c1c",border:"1px solid #332010",color:C.text,borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>✕</button>
             </div>
@@ -4559,43 +4622,38 @@ function AnalisePosturalView({registros, podeEditar, onSalvarRegistro, onExcluir
                 style={{background:"#1c1c1c",border:"1px solid #332010",color:C.text,borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>✕</button>
             </div>
 
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:18}}>
-              {registroSelecionado.fotoFrente&&(
-                <img src={registroSelecionado.fotoFrente} alt="Frente" style={{width:"100%",aspectRatio:"3/4",objectFit:"cover",borderRadius:8,border:"1px solid #2a1a08"}}/>
-              )}
-              {registroSelecionado.fotoPerfil&&(
-                <img src={registroSelecionado.fotoPerfil} alt="Perfil" style={{width:"100%",aspectRatio:"3/4",objectFit:"cover",borderRadius:8,border:"1px solid #2a1a08"}}/>
-              )}
-            </div>
-
-            {registroSelecionado.diagnosticoFrente?.length>0&&(
-              <div style={{marginBottom:16}}>
+            {registroSelecionado.fotoFrente&&(
+              <div style={{marginBottom:18}}>
                 <div style={{fontSize:11,fontWeight:700,color:"#e8cba8",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Vista Frontal</div>
-                <div style={{display:"grid",gap:8}}>
-                  {registroSelecionado.diagnosticoFrente.map(item=>(
-                    <CardDiagnosticoPostural key={item.chave} item={item} onClick={()=>setItemDetalhe(item)}/>
-                  ))}
+                <FotoPosturalComLinhas tipo="frente" foto={registroSelecionado.fotoFrente} pontos={registroSelecionado.pontosFrente}/>
+                <div style={{marginTop:10}}>
+                  <FileiraCardsPostural itens={registroSelecionado.diagnosticoFrente} onSelecionar={setItemDetalhe}/>
                 </div>
               </div>
             )}
 
-            {registroSelecionado.diagnosticoPerfil?.length>0&&(
-              <div style={{marginBottom:16}}>
+            {registroSelecionado.fotoPerfil&&(
+              <div style={{marginBottom:18}}>
                 <div style={{fontSize:11,fontWeight:700,color:"#e8cba8",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Vista Lateral</div>
-                <div style={{display:"grid",gap:8}}>
-                  {registroSelecionado.diagnosticoPerfil.map(item=>(
-                    <CardDiagnosticoPostural key={item.chave} item={item} onClick={()=>setItemDetalhe(item)}/>
-                  ))}
+                <FotoPosturalComLinhas tipo="perfil" foto={registroSelecionado.fotoPerfil} pontos={registroSelecionado.pontosPerfil}/>
+                <div style={{marginTop:10}}>
+                  <FileiraCardsPostural itens={registroSelecionado.diagnosticoPerfil} onSelecionar={setItemDetalhe}/>
                 </div>
               </div>
             )}
 
             {podeEditar&&(
-              <button onClick={()=>setConfirmarRemover(registroSelecionado.id)}
-                style={{width:"100%",background:"transparent",border:"1px solid #7f1d1d60",color:"#f87171",
-                  borderRadius:9,padding:"11px",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
-                Excluir análise
-              </button>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <button onClick={()=>iniciarEdicao(registroSelecionado)}
+                  style={{...css.btnB,width:"100%",padding:"11px"}}>
+                  ✏ Editar
+                </button>
+                <button onClick={()=>setConfirmarRemover(registroSelecionado.id)}
+                  style={{width:"100%",background:"transparent",border:"1px solid #7f1d1d60",color:"#f87171",
+                    borderRadius:9,padding:"11px",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                  Excluir
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -6794,8 +6852,10 @@ export default function App(){
               <AnalisePosturalView
                 registros={a.historicoPostural||[]}
                 podeEditar={podeEditar}
-                onSalvarRegistro={async(novoRegistro)=>{
-                  const novoHistorico = [...(a.historicoPostural||[]), novoRegistro];
+                onSalvarRegistro={async(registro, idParaEditar)=>{
+                  const novoHistorico = idParaEditar
+                    ? (a.historicoPostural||[]).map(r=>r.id===idParaEditar?registro:r)
+                    : [...(a.historicoPostural||[]), registro];
                   try{
                     await salvarAluno(a.id, {historicoPostural:novoHistorico});
                   }catch(e){
