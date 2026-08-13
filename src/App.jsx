@@ -3980,6 +3980,43 @@ function diagnosticoFrente(pontos){
   });
 }
 
+// Calcula o alinhamento vertical de cada MEMBRO INFERIOR na foto de FRENTE:
+// usa o quadril de cada lado como base da linha vertical, e mede o desvio
+// horizontal do joelho e do tornozelo daquele mesmo lado em relação a essa
+// linha — identifica padrões como joelho valgo/varo ou desvio do tornozelo.
+function diagnosticoMembroInferior(pontos){
+  const lados = [
+    {chave:"membroE", label:"Alinhamento — Perna Esquerda", quadril:"quadrilE", joelho:"joelhoE", tornozelo:"tornozeloE"},
+    {chave:"membroD", label:"Alinhamento — Perna Direita", quadril:"quadrilD", joelho:"joelhoD", tornozelo:"tornozeloD"},
+  ];
+  return lados.map(l=>{
+    const pq = pontos[l.quadril], pj = pontos[l.joelho], pt = pontos[l.tornozelo];
+    if(!pq || !pj || !pt) return {chave:l.chave, label:l.label, status:"sem-dados"};
+
+    // Desvio do joelho e do tornozelo em relacao a vertical que desce do quadril
+    const diffJoelho = pj.x - pq.x;
+    const diffTornozelo = pt.x - pq.x;
+    const maiorDesvio = Math.max(Math.abs(diffJoelho), Math.abs(diffTornozelo));
+
+    let status, diagnostico;
+    if(maiorDesvio < 1.5){
+      status = "normal";
+      diagnostico = "Membro alinhado — quadril, joelho e tornozelo na mesma vertical.";
+    } else if(maiorDesvio < 3.5){
+      status = "leve";
+      const pontoMaisDesviado = Math.abs(diffJoelho) >= Math.abs(diffTornozelo) ? "joelho" : "tornozelo";
+      const direcao = (pontoMaisDesviado==="joelho" ? diffJoelho : diffTornozelo) > 0 ? "para fora" : "para dentro";
+      diagnostico = `Leve desvio do ${pontoMaisDesviado} ${direcao} em relação à linha do quadril.`;
+    } else {
+      status = "atencao";
+      const pontoMaisDesviado = Math.abs(diffJoelho) >= Math.abs(diffTornozelo) ? "joelho" : "tornozelo";
+      const direcao = (pontoMaisDesviado==="joelho" ? diffJoelho : diffTornozelo) > 0 ? "para fora" : "para dentro";
+      diagnostico = `Desvio perceptível do ${pontoMaisDesviado} ${direcao} — pode indicar padrão valgo/varo. Recomenda-se atenção.`;
+    }
+    return {chave:l.chave, label:l.label, status, diagnostico, diferenca:maiorDesvio.toFixed(1)};
+  });
+}
+
 // Calcula o diagnostico da foto de PERFIL: usa o tornozelo como base da
 // linha vertical de referencia, e mede o desvio horizontal (X) de cada
 // ponto acima em relacao a essa linha.
@@ -4266,7 +4303,10 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
                   draggable={false}
                   style={{width:"100%",display:"block",cursor:pontoAtivo?"crosshair":(zoom>1?"grab":"default"),userSelect:"none"}}/>
 
-                {/* Pontos já marcados — arrastáveis para reposicionar */}
+                {/* Pontos já marcados — arrastáveis para reposicionar.
+                    Compensa o zoom com scale(1/zoom) para o ponto manter
+                    sempre o mesmo tamanho visual na tela, independente de
+                    quanto a foto esteja ampliada. */}
                 {listaPontos.map(p=>{
                   const pt = pontos[p.k];
                   if(!pt) return null;
@@ -4278,19 +4318,34 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
                         width:22,height:22,marginLeft:-11,marginTop:-11,borderRadius:"50%",
                         background:pontoAtivo===p.k?C.accent:"#34d399",border:"2px solid #fff",
                         boxShadow:"0 0 6px #000",cursor:"grab",
+                        transform:`scale(${1/zoom})`,
                         display:"flex",alignItems:"center",justifyContent:"center"}}>
                       <div style={{width:6,height:6,borderRadius:"50%",background:"#fff"}}/>
                     </div>
                   );
                 })}
 
-                {/* Linhas de conexão entre pares (frente) */}
+                {/* Linhas de conexão entre pares (frente) + linhas verticais de alinhamento do membro inferior */}
                 {tipo==="frente"&&(
                   <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",pointerEvents:"none"}}>
                     {PONTOS_FRENTE.filter((p,i)=>i%2===0).map(p=>{
                       const pe=pontos[p.k], pd=pontos[p.par];
                       if(!pe||!pd) return null;
                       return <line key={p.k} x1={pe.x+"%"} y1={pe.y+"%"} x2={pd.x+"%"} y2={pd.y+"%"} stroke="#fbbf24" strokeWidth="2" strokeDasharray="4,3"/>;
+                    })}
+                    {/* Linhas verticais quadril-joelho-tornozelo, para analise de alinhamento do membro inferior */}
+                    {[
+                      {q:"quadrilE", j:"joelhoE", t:"tornozeloE"},
+                      {q:"quadrilD", j:"joelhoD", t:"tornozeloD"},
+                    ].map(({q,j,t})=>{
+                      const pq=pontos[q], pj=pontos[j], pt=pontos[t];
+                      if(!pq||!pj||!pt) return null;
+                      return(
+                        <g key={q}>
+                          <line x1={pq.x+"%"} y1={pq.y+"%"} x2={pj.x+"%"} y2={pj.y+"%"} stroke="#a78bfa" strokeWidth="2" strokeDasharray="2,3"/>
+                          <line x1={pj.x+"%"} y1={pj.y+"%"} x2={pt.x+"%"} y2={pt.y+"%"} stroke="#a78bfa" strokeWidth="2" strokeDasharray="2,3"/>
+                        </g>
+                      );
                     })}
                   </svg>
                 )}
@@ -4363,6 +4418,19 @@ function FotoPosturalComLinhas({tipo, foto, pontos}){
             const pe=pontos[p.k], pd=pontos[p.par];
             if(!pe||!pd) return null;
             return <line key={p.k} x1={pe.x+"%"} y1={pe.y+"%"} x2={pd.x+"%"} y2={pd.y+"%"} stroke="#fbbf24" strokeWidth="2" strokeDasharray="4,3"/>;
+          })}
+          {tipo==="frente" && [
+            {q:"quadrilE", j:"joelhoE", t:"tornozeloE"},
+            {q:"quadrilD", j:"joelhoD", t:"tornozeloD"},
+          ].map(({q,j,t})=>{
+            const pq=pontos[q], pj=pontos[j], pt=pontos[t];
+            if(!pq||!pj||!pt) return null;
+            return(
+              <g key={q}>
+                <line x1={pq.x+"%"} y1={pq.y+"%"} x2={pj.x+"%"} y2={pj.y+"%"} stroke="#a78bfa" strokeWidth="2" strokeDasharray="2,3"/>
+                <line x1={pj.x+"%"} y1={pj.y+"%"} x2={pt.x+"%"} y2={pt.y+"%"} stroke="#a78bfa" strokeWidth="2" strokeDasharray="2,3"/>
+              </g>
+            );
           })}
           {tipo==="perfil" && pontos.tornozelo && (
             <line x1={pontos.tornozelo.x+"%"} y1="0%" x2={pontos.tornozelo.x+"%"} y2="100%" stroke="#fbbf24" strokeWidth="2" strokeDasharray="4,3"/>
@@ -4485,7 +4553,7 @@ function AnalisePosturalView({registros, podeEditar, onSalvarRegistro, onExcluir
   const salvarRegistroCompleto = async ()=>{
     if(!dadosFrente && !dadosPerfil) return;
     setSalvando(true);
-    const diagFrente = dadosFrente ? diagnosticoFrente(dadosFrente.pontos) : [];
+    const diagFrente = dadosFrente ? [...diagnosticoFrente(dadosFrente.pontos), ...diagnosticoMembroInferior(dadosFrente.pontos)] : [];
     const diagPerfil = dadosPerfil ? diagnosticoPerfil(dadosPerfil.pontos) : [];
     const registro = {
       id: editandoRegistroId || Date.now(),
