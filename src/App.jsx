@@ -2921,11 +2921,15 @@ function PlanilhaMesView({prof, mesAtivo, linhas, alunos, onUpdateLinhas, onVolt
     setConfirmarRemover(null);
   };
 
-  const total = linhas.reduce((soma,l)=>{
+  // Os totais consideram apenas as linhas VISIVEIS nesta planilha — quando o
+  // profissional tem vinculo misto, isso ja exclui as linhas que pertencem
+  // a outra aba (Fixo/Comissao), garantindo que o total mostrado seja o
+  // do segmento atual, nao do profissional como um todo.
+  const total = linhasVisiveis.reduce((soma,l)=>{
     const v = parseFloat(String(l.valor||"0").replace(",","."));
     return soma + (isNaN(v)?0:v);
   }, 0);
-  const totalPago = linhas.filter(l=>l.pago).reduce((soma,l)=>{
+  const totalPago = linhasVisiveis.filter(l=>l.pago).reduce((soma,l)=>{
     const v = parseFloat(String(l.valor||"0").replace(",","."));
     return soma + (isNaN(v)?0:v);
   }, 0);
