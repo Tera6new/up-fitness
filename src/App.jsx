@@ -3993,9 +3993,16 @@ function diagnosticoMembroInferior(pontos){
     const pq = pontos[l.quadril], pj = pontos[l.joelho], pt = pontos[l.tornozelo];
     if(!pq || !pj || !pt) return {chave:l.chave, label:l.label, status:"sem-dados"};
 
-    // Desvio do joelho e do tornozelo em relacao a vertical que desce do quadril
-    const diffJoelho = pj.x - pq.x;
-    const diffTornozelo = pt.x - pq.x;
+    // Desvio do joelho e do tornozelo em relacao a vertical que desce do quadril.
+    // Numa foto de FRENTE, a perna direita da pessoa aparece do lado ESQUERDO da
+    // imagem (espelhamento natural de estar de frente pra camera), e a perna
+    // esquerda aparece do lado direito. Por isso "afastar do centro do corpo"
+    // (fora) corresponde a x crescente para o lado esquerdo (membroE) mas a x
+    // decrescente para o lado direito (membroD). O fator abaixo normaliza isso
+    // para que diffPositivo sempre signifique "para fora" independente do lado.
+    const fatorLado = l.chave === "membroD" ? -1 : 1;
+    const diffJoelho = fatorLado * (pj.x - pq.x);
+    const diffTornozelo = fatorLado * (pt.x - pq.x);
     const maiorDesvio = Math.max(Math.abs(diffJoelho), Math.abs(diffTornozelo));
 
     let status, diagnostico;
