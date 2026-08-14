@@ -4362,6 +4362,11 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
               <div style={{fontSize:11,fontWeight:700,color:"#e8cba8",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>
                 Marque os pontos ({Object.keys(pontos).length}/{listaPontos.length})
               </div>
+              {tipo==="frente"&&(
+                <div style={{background:"#1a1008",border:"1px solid #3d2010",borderRadius:8,padding:"8px 10px",marginBottom:10,fontSize:11,color:"#e8cba8",lineHeight:1.5}}>
+                  💡 Convenção anatômica: o lado <strong>esquerdo</strong> do aluno aparece do lado <strong>direito</strong> da tela (como se você estivesse de frente para ele).
+                </div>
+              )}
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                 {listaPontos.map(p=>{
                   const marcado = !!pontos[p.k];
@@ -4378,11 +4383,30 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
                   );
                 })}
               </div>
-              {pontoAtivo&&(
-                <div style={{marginTop:10,background:"#1a1008",border:"1px solid "+C.accent+"40",borderRadius:8,padding:"10px 12px",fontSize:12,color:C.text}}>
-                  👆 Toque na foto para marcar: <strong>{listaPontos.find(p=>p.k===pontoAtivo)?.l}</strong>
-                </div>
-              )}
+              {pontoAtivo&&(()=>{
+                const pontoInfo = listaPontos.find(p=>p.k===pontoAtivo);
+                // Convencao anatomica: numa foto de FRENTE, o lado ESQUERDO do
+                // aluno aparece do lado DIREITO da tela (e vice-versa) — como
+                // se voce estivesse de frente para a pessoa. Mostra essa
+                // orientacao explicitamente para evitar marcacao invertida.
+                let dicaLado = "";
+                if(tipo==="frente" && pontoInfo?.k.endsWith("E")){
+                  dicaLado = " — lado DIREITO da tela";
+                } else if(tipo==="frente" && pontoInfo?.k.endsWith("D")){
+                  dicaLado = " — lado ESQUERDO da tela";
+                }
+                return(
+                  <div style={{marginTop:10,background:"#1a1008",border:"1px solid "+C.accent+"40",borderRadius:8,padding:"10px 12px",fontSize:12,color:C.text}}>
+                    👆 Toque na foto para marcar: <strong>{pontoInfo?.l}</strong>
+                    {dicaLado && <span style={{color:"#fbbf24",fontWeight:700}}>{dicaLado}</span>}
+                    {tipo==="frente" && (
+                      <div style={{fontSize:10,color:C.muted,marginTop:4}}>
+                        Lembrete: o lado esquerdo do aluno aparece do lado direito da tela (como se você estivesse de frente para ele).
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
