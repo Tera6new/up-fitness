@@ -4,6 +4,7 @@
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  signInAnonymously,
   signOut,
   onAuthStateChanged,
 } from "firebase/auth";
@@ -43,6 +44,20 @@ export async function criarConta(email, senha) {
   }
 }
 
+// Cria uma sessão anônima do Firebase (sem e-mail/senha, sem nenhum vínculo
+// com uma conta real). Usada apenas para satisfazer as regras de segurança
+// do Firestore, que exigem "request.auth != null" para permitir leitura —
+// isso deixa a tela de "Acesso Aluno" (busca por nome) funcionar mesmo
+// antes de qualquer login real de profissional. Não concede nenhuma
+// permissão de escrita; é só uma sessão de leitura anônima e descartável.
+export async function entrarAnonimo() {
+  try {
+    await signInAnonymously(auth);
+  } catch (e) {
+    console.error("Erro ao criar sessão anônima:", e);
+  }
+}
+
 // Login normal
 export async function fazerLogin(email, senha) {
   try {
@@ -61,6 +76,6 @@ export async function fazerLogout() {
 // Observa mudanças no estado de login (usado para manter sessão entre reloads)
 export function observarUsuario(callback) {
   return onAuthStateChanged(auth, (user) => {
-    callback(user ? { uid: user.uid, email: user.email } : null);
+    callback(user ? { uid: user.uid, email: user.email, isAnonymous: user.isAnonymous } : null);
   });
 }
