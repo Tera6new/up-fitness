@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { fazerLogin, observarUsuario, fazerLogout, criarConta, entrarAnonimo } from "./services/authService";
-import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia, salvarAgendaCompleta, ouvirTodosPagamentos, atualizarMesPagamento, salvarPagamentosCompleto, ouvirOuvidoria, adicionarMensagemOuvidoria, ouvirTodasOuvidorias, criarConvite, buscarConvite, marcarConvitePreenchido, uploadGifExercicio, excluirGifExercicio } from "./services/dataService";
+import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia, salvarAgendaCompleta, ouvirTodosPagamentos, atualizarMesPagamento, salvarPagamentosCompleto, ouvirOuvidoria, adicionarMensagemOuvidoria, ouvirTodasOuvidorias, criarConvite, buscarConvite, marcarConvitePreenchido } from "./services/dataService";
 
 // ── DADOS ────────────────────────────────────────────────────────────────────
 const APP_VERSION = "v2.1";
@@ -6684,7 +6684,7 @@ export default function App(){
         </>}
 
         {/* ── PG 4: Treino ── */}
-        {pg===4&&<PgTreino form={form} u={u} aba={treinoAba} setAba={setTreinoAba} alunoId={editId}/>}
+        {pg===4&&<PgTreino form={form} u={u} aba={treinoAba} setAba={setTreinoAba}/>}
       </div>
     </div>
   );
@@ -7181,7 +7181,7 @@ export default function App(){
 }
 
 // ── PG 4 TREINO ───────────────────────────────────────────────────────────────
-function PgTreino({form,u,aba,setAba,alunoId}){
+function PgTreino({form,u,aba,setAba}){
   return(
     <div style={{width:"100%",minWidth:0}}>
       <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
@@ -7263,20 +7263,20 @@ function PgTreino({form,u,aba,setAba,alunoId}){
         </div>
       )}
 
-      {LETRAS.map(l=>aba===l&&<AbaExercicios key={l} l={l} form={form} u={u} alunoId={alunoId}/>)}
+      {LETRAS.map(l=>aba===l&&<AbaExercicios key={l} l={l} form={form} u={u}/>)}
     </div>
   );
 }
 
 function novoBloco(){ return {id:Date.now()+Math.random(), exercicios:[]}; }
-function novoEx(){ return {id:Date.now()+Math.random(), nome:"", series:"", reps:"", carga:"", obs:"", gifUrl:"", gifPath:""}; }
+function novoEx(){ return {id:Date.now()+Math.random(), nome:"", series:"", reps:"", carga:"", obs:""}; }
 
 const CARDIO_TIPOS = ["Esteira","Bicicleta ergometrica","Eliptico","Escada","Remo ergometrico","Pulo de corda","Corrida na pista","Caminhada","HIIT","Natação","Jump"];
 const CARDIO_INTENS = ["Leve (aquecimento)","Moderado","Forte","Máximo (sprint)","Variado (intervalado)"];
 
 function novoBlocoCardio(){ return {id:Date.now()+Math.random(), tipo:"cardio", exercicio:"Esteira", tempo:"", intensidade:"Moderado", obs:""}; }
 
-function AbaExercicios({l,form,u,alunoId}){
+function AbaExercicios({l,form,u}){
   const cor=COR_LETRA[l];
   const blocos=form["blocos"+l]||[];
   const setBlocos=b=>u("blocos"+l,b);
@@ -7336,7 +7336,7 @@ function AbaExercicios({l,form,u,alunoId}){
                 onUpd={(k,v)=>updCardio(bloco.id,k,v)}
                 onRm={()=>rmBloco(bloco.id)}
                 onUp={()=>moveUp(bi)} onDown={()=>moveDown(bi)}/>
-            : <BlocoEditor bloco={bloco} bi={bi} numBloco={numBloco} cor={cor} total={blocos.length} alunoId={alunoId}
+            : <BlocoEditor bloco={bloco} bi={bi} numBloco={numBloco} cor={cor} total={blocos.length}
                 onRmBloco={()=>rmBloco(bloco.id)}
                 onUpdEx={(exId,k,v)=>updEx(bloco.id,exId,k,v)}
                 onRmEx={exId=>rmEx(bloco.id,exId)}
@@ -7391,7 +7391,7 @@ function BlocoCardio({bloco,bi,total,onUpd,onRm,onUp,onDown}){
   );
 }
 
-function BlocoEditor({bloco,bi,numBloco,cor,total,alunoId,onRmBloco,onUpdEx,onRmEx,onAddEx,onAddCardio,onUp,onDown}){
+function BlocoEditor({bloco,bi,numBloco,cor,total,onRmBloco,onUpdEx,onRmEx,onAddEx,onAddCardio,onUp,onDown}){
   const cheio=(bloco.exercicios||[]).length>=3;
   return(
     <div style={{...css.card,marginBottom:10,border:"1px solid "+cor+"30"}}>
@@ -7407,7 +7407,7 @@ function BlocoEditor({bloco,bi,numBloco,cor,total,alunoId,onRmBloco,onUpdEx,onRm
         </div>
       </div>
       {(bloco.exercicios||[]).map((ex,ei)=>(
-        <ExercicioRow key={ex.id} ex={ex} ei={ei} cor={cor} alunoId={alunoId}
+        <ExercicioRow key={ex.id} ex={ex} ei={ei} cor={cor}
           onUpd={(k,v)=>onUpdEx(ex.id,k,v)}
           onRm={()=>onRmEx(ex.id)}
         />
@@ -7420,28 +7420,7 @@ function BlocoEditor({bloco,bi,numBloco,cor,total,alunoId,onRmBloco,onUpdEx,onRm
   );
 }
 
-// ── GIF de execução do exercício: miniatura clicável + visualização ampliada ──
-function GifThumb({url,size=32,onClick,corBorda}){
-  if(!url) return null;
-  return(
-    <img src={url} alt="GIF de execução" onClick={onClick}
-      style={{width:size,height:size,borderRadius:6,objectFit:"cover",cursor:"pointer",
-        border:"1px solid "+(corBorda||"#2a1a08"),flexShrink:0}}/>
-  );
-}
-
-function GifLightbox({url,onClose}){
-  return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"#000000ee",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div onClick={e=>e.stopPropagation()} style={{maxWidth:420,width:"100%"}}>
-        <img src={url} alt="Execução do exercício" style={{width:"100%",borderRadius:12,border:"1px solid #2a1a08",display:"block"}}/>
-        <button onClick={onClose} style={{...css.btnB,width:"100%",marginTop:10}}>Fechar</button>
-      </div>
-    </div>
-  );
-}
-
-function ExercicioRow({ex,ei,cor,onUpd,onRm,alunoId}){
+function ExercicioRow({ex,ei,cor,onUpd,onRm}){
   const isCardio = ex.tipo==="cardio";
   // Cardio usa a mesma cor e número do bloco — sem distinção visual
   const corRow = cor;
@@ -7450,41 +7429,6 @@ function ExercicioRow({ex,ei,cor,onUpd,onRm,alunoId}){
   const [grupo,setGrupo]=useState("");
   const [exSel,setExSel]=useState("");
   const aplicarDaLista=()=>{ if(!exSel)return; onUpd("nome",exSel); setModoLista(false);setGrupo("");setExSel(""); };
-
-  // ── GIF de execução ──
-  const [enviandoGif,setEnviandoGif]=useState(false);
-  const [lightboxAberto,setLightboxAberto]=useState(false);
-  const fileInputRef=useRef(null);
-  const TIPOS_ACEITOS=["image/gif","image/webp","image/png","image/jpeg"];
-  const MAX_GIF_MB=8;
-
-  const handleGifFile=async(file)=>{
-    if(!file) return;
-    if(!alunoId){ alert("Salve o aluno antes de anexar o GIF de execução."); return; }
-    if(!TIPOS_ACEITOS.includes(file.type)){ alert("Envie um arquivo GIF, WEBP, PNG ou JPG."); return; }
-    if(file.size>MAX_GIF_MB*1024*1024){ alert(`Arquivo muito grande. Máximo ${MAX_GIF_MB}MB.`); return; }
-    setEnviandoGif(true);
-    const pathAntigo=ex.gifPath;
-    try{
-      const {url,path}=await uploadGifExercicio(file,alunoId,ex.id);
-      onUpd("gifUrl",url);
-      onUpd("gifPath",path);
-      if(pathAntigo) excluirGifExercicio(pathAntigo);
-    }catch(e){
-      console.error(e);
-      alert("Erro ao enviar o GIF. Tente novamente.");
-    }finally{
-      setEnviandoGif(false);
-    }
-  };
-
-  const removerGif=()=>{
-    if(!confirm("Remover o GIF deste exercício?")) return;
-    const path=ex.gifPath;
-    onUpd("gifUrl","");
-    onUpd("gifPath","");
-    if(path) excluirGifExercicio(path);
-  };
 
   return(
     <div style={{background:"#121212",border:"1px solid #2a1a08",borderRadius:8,padding:"10px 12px",marginBottom:8,borderLeft:"3px solid "+corRow}}>
@@ -7513,26 +7457,9 @@ function ExercicioRow({ex,ei,cor,onUpd,onRm,alunoId}){
             </>
         }
 
-        <input ref={fileInputRef} type="file" accept="image/gif,image/webp,image/png,image/jpeg" style={{display:"none"}}
-          onChange={e=>{handleGifFile(e.target.files[0]); e.target.value="";}}/>
-        {ex.gifUrl
-          ? <div style={{position:"relative",flexShrink:0}}>
-              <GifThumb url={ex.gifUrl} corBorda={corRow} onClick={()=>setLightboxAberto(true)}/>
-              <button onClick={removerGif} title="Remover GIF"
-                style={{position:"absolute",top:-6,right:-6,width:16,height:16,borderRadius:"50%",background:"#450a0a",color:"#fca5a5",border:"none",fontSize:10,lineHeight:"16px",padding:0,cursor:"pointer"}}>×</button>
-            </div>
-          : <button onClick={()=>fileInputRef.current?.click()} disabled={enviandoGif}
-              title="Adicionar GIF de execução" type="button"
-              style={{...css.btnC,fontSize:10,padding:"5px 8px",flexShrink:0,opacity:enviandoGif?.5:1,whiteSpace:"nowrap"}}>
-              {enviandoGif?"Enviando...":"🎬 GIF"}
-            </button>
-        }
-
         <button onClick={onRm}
           style={{background:"#450a0a",color:"#fca5a5",border:"none",borderRadius:6,width:28,height:32,cursor:"pointer",fontSize:14,flexShrink:0}}>×</button>
       </div>
-
-      {lightboxAberto&&ex.gifUrl&&<GifLightbox url={ex.gifUrl} onClose={()=>setLightboxAberto(false)}/>}
 
       {/* ── Seletor da lista (só exercício normal) ── */}
       {!isCardio&&modoLista&&(
@@ -7776,7 +7703,6 @@ function AdicionarExercicio({cor,onAddEx,onAddCardio}){
 // Mostra info geral + botões de treino. Ao clicar, abre tela do treino escolhido.
 function TreinoAlunoView({aluno, treinoInicial}){
   const [treinoAberto,setTreinoAberto]=useState(treinoInicial || null); // null | "A"|"B"|"C"|"D"
-  const [gifAberto,setGifAberto]=useState(null); // url do gif em visualização ampliada
 
   useEffect(()=>{
     if(treinoInicial) setTreinoAberto(treinoInicial);
@@ -7788,7 +7714,6 @@ function TreinoAlunoView({aluno, treinoInicial}){
     const cor=COR_LETRA[treinoAberto];
     const nome=aluno["treino"+treinoAberto]||"";
     return(
-      <>
       <div>
         {/* Header do treino */}
         <button onClick={()=>setTreinoAberto(null)}
@@ -7837,7 +7762,6 @@ function TreinoAlunoView({aluno, treinoInicial}){
                             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
                               <div style={{fontSize:11,fontWeight:700,color:cor,minWidth:22}}>{ei+1}</div>
                               <div style={{fontWeight:600,fontSize:13,flex:1,color:cor}}>{ex.nome||"--"}</div>
-                              {ex.gifUrl&&<GifThumb url={ex.gifUrl} size={36} corBorda={cor} onClick={()=>setGifAberto(ex.gifUrl)}/>}
                             </div>
                             {ex.tipo==="cardio"
                               ?<>
@@ -7883,8 +7807,6 @@ function TreinoAlunoView({aluno, treinoInicial}){
           })
         }
       </div>
-      {gifAberto&&<GifLightbox url={gifAberto} onClose={()=>setGifAberto(null)}/>}
-      </>
     );
   }
 
@@ -7963,7 +7885,6 @@ function TreinoAlunoView({aluno, treinoInicial}){
 
 // ── TREINO VIEW (DETAIL) ──────────────────────────────────────────────────────
 function TreinoView({aluno}){
-  const [gifAberto,setGifAberto]=useState(null);
   return(
     <div style={{width:"100%",minWidth:0}}>
       {/* Informações Gerais */}
@@ -8044,7 +7965,6 @@ function TreinoView({aluno}){
                                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
                                   <div style={{fontSize:11,fontWeight:700,color:cor,minWidth:22}}>{ei+1}</div>
                                   <div style={{fontWeight:600,fontSize:13,flex:1,color:cor}}>{ex.nome||"--"}</div>
-                                  {ex.gifUrl&&<GifThumb url={ex.gifUrl} size={36} corBorda={cor} onClick={()=>setGifAberto(ex.gifUrl)}/>}
                                 </div>
                                 {isCardio
                                   ? <>
@@ -8092,7 +8012,6 @@ function TreinoView({aluno}){
           </div>
         );
       })}
-      {gifAberto&&<GifLightbox url={gifAberto} onClose={()=>setGifAberto(null)}/>}
     </div>
   );
 }
