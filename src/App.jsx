@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { fazerLogin, observarUsuario, fazerLogout, criarConta, entrarAnonimo } from "./services/authService";
+import { fazerLogin, observarUsuario, fazerLogout, criarConta } from "./services/authService";
 import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia, salvarAgendaCompleta, ouvirTodosPagamentos, atualizarMesPagamento, salvarPagamentosCompleto, ouvirOuvidoria, adicionarMensagemOuvidoria, ouvirTodasOuvidorias, criarConvite, buscarConvite, marcarConvitePreenchido } from "./services/dataService";
 
 // ── DADOS ────────────────────────────────────────────────────────────────────
@@ -3993,16 +3993,9 @@ function diagnosticoMembroInferior(pontos){
     const pq = pontos[l.quadril], pj = pontos[l.joelho], pt = pontos[l.tornozelo];
     if(!pq || !pj || !pt) return {chave:l.chave, label:l.label, status:"sem-dados"};
 
-    // Desvio do joelho e do tornozelo em relacao a vertical que desce do quadril.
-    // Numa foto de FRENTE, a perna direita da pessoa aparece do lado ESQUERDO da
-    // imagem (espelhamento natural de estar de frente pra camera), e a perna
-    // esquerda aparece do lado direito. Por isso "afastar do centro do corpo"
-    // (fora) corresponde a x crescente para o lado esquerdo (membroE) mas a x
-    // decrescente para o lado direito (membroD). O fator abaixo normaliza isso
-    // para que diffPositivo sempre signifique "para fora" independente do lado.
-    const fatorLado = l.chave === "membroD" ? -1 : 1;
-    const diffJoelho = fatorLado * (pj.x - pq.x);
-    const diffTornozelo = fatorLado * (pt.x - pq.x);
+    // Desvio do joelho e do tornozelo em relacao a vertical que desce do quadril
+    const diffJoelho = pj.x - pq.x;
+    const diffTornozelo = pt.x - pq.x;
     const maiorDesvio = Math.max(Math.abs(diffJoelho), Math.abs(diffTornozelo));
 
     let status, diagnostico;
@@ -4818,39 +4811,24 @@ export default function App(){
 
   const [currentUser,setCurrentUser]=useState(null);
   const [authCarregando,setAuthCarregando]=useState(true);
-  // Indica se existe QUALQUER sessão do Firebase Auth ativa — incluindo a
-  // sessão anônima criada automaticamente quando ninguém está logado. É
-  // diferente de "currentUser": currentUser só existe para profissionais
-  // logados de verdade (ou aluno selecionado). sessaoFirebaseAtiva serve
-  // apenas para liberar a leitura de profissionais/alunos (necessária para
-  // a tela de busca "Acesso Aluno" funcionar mesmo sem login real).
-  const [sessaoFirebaseAtiva,setSessaoFirebaseAtiva]=useState(false);
 
   // Observa o estado de login do Firebase. Quando o usuario ja tem sessao
   // ativa (ex: recarregou a pagina), busca os dados completos dele no Firestore.
   useEffect(()=>{
     const unsubscribe = observarUsuario(async (usuarioFirebase)=>{
       if(usuarioFirebase){
-        setSessaoFirebaseAtiva(true);
-        if(!usuarioFirebase.isAnonymous){
-          try{
-            const dadosProf = await buscarProfissional(usuarioFirebase.uid);
-            if(dadosProf){
-              setCurrentUser({...dadosProf, id: usuarioFirebase.uid});
-            }
-          }catch(e){
-            console.error("Erro ao restaurar sessão:", e);
+        try{
+          const dadosProf = await buscarProfissional(usuarioFirebase.uid);
+          if(dadosProf){
+            setCurrentUser({...dadosProf, id: usuarioFirebase.uid});
           }
+        }catch(e){
+          console.error("Erro ao restaurar sessão:", e);
         }
       } else {
         // Sem sessao Firebase ativa. Pode ainda ser um "aluno" logado localmente
         // (alunos nao usam Firebase Authentication, apenas selecionam o nome).
         setCurrentUser(prev => (prev && prev.role==="aluno") ? prev : null);
-        setSessaoFirebaseAtiva(false);
-        // Cria uma sessao anonima automaticamente so para satisfazer as regras
-        // do Firestore (leitura exige autenticacao) — permite que a tela de
-        // busca "Acesso Aluno" funcione mesmo sem nenhum login real ainda.
-        entrarAnonimo();
       }
       setAuthCarregando(false);
     });
@@ -4861,18 +4839,21 @@ export default function App(){
   const [alunos,setAlunos]=useState([]);
 
   // Mantem a lista de profissionais e alunos sincronizada em tempo real com o Firestore.
-  // IMPORTANTE: inicia assim que existir QUALQUER sessão do Firebase (inclusive
-  // anônima) — não apenas quando currentUser existir. Isso é o que permite a
-  // tela "Acesso Aluno" (busca por nome) funcionar mesmo antes de qualquer
-  // login real, evitando a lista aparecer vazia de forma intermitente.
+  // IMPORTANTE: só espera authCarregando terminar (nao currentUser existir),
+  // ja que as regras do Firestore permitem leitura livre dessas duas
+  // colecoes (alunos e profissionais nao exigem login para ler). Exigir
+  // currentUser aqui criava uma corrida real: em conexoes mais lentas
+  // (celular), authCarregando podia virar false ANTES do Firebase terminar
+  // de popular currentUser — e como o efeito so roda de novo se um desses
+  // valores mudar, a lista ficava vazia ate a pessoa deslogar e logar de
+  // novo (o que forcava uma nova tentativa).
   useEffect(()=>{
-    if(authCarregando) return; // aguarda a confirmacao do login antes de tentar ler
-    if(!sessaoFirebaseAtiva) return;   // sem sessao (nem anonima), nao adianta tentar (regras exigem login)
+    if(authCarregando) return; // aguarda so a confirmacao inicial do Firebase Auth
 
     const unsubProf = ouvirProfissionais((lista)=>setProfissionais(lista));
     const unsubAlunos = ouvirAlunos((lista)=>setAlunos(lista));
     return ()=>{ unsubProf(); unsubAlunos(); };
-  }, [authCarregando, sessaoFirebaseAtiva]);
+  }, [authCarregando]);
 
   const [view,setView]=useState("profissionais");
   const [profSelecionado,setProfSelecionado]=useState(null);
@@ -4918,13 +4899,15 @@ export default function App(){
 
   // Mantem todas as ouvidorias sincronizadas em tempo real (necessario para
   // a tela de Ouvidoria Admin, que mostra mensagens de todos os alunos juntas).
+  // So espera authCarregando (nao currentUser), ja que a regra do Firestore
+  // permite leitura livre dessa colecao — mesma correcao aplicada a
+  // alunos/profissionais para evitar a mesma corrida em conexoes lentas.
   useEffect(()=>{
     if(authCarregando) return;
-    if(!currentUser) return;
 
     const unsubOuvidorias = ouvirTodasOuvidorias((todas)=>setOuvidorias(todas));
     return ()=>unsubOuvidorias();
-  }, [authCarregando, currentUser?.id]);
+  }, [authCarregando]);
 
   const [backupTexto,setBackupTexto]=useState(null);
   const [modalWhatsAppAluno,setModalWhatsAppAluno]=useState(null);
