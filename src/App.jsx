@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { fazerLogin, observarUsuario, fazerLogout, criarConta } from "./services/authService";
+import { fazerLogin, observarUsuario, fazerLogout, criarConta, entrarAnonimo } from "./services/authService";
 import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia, salvarAgendaCompleta, ouvirTodosPagamentos, atualizarMesPagamento, salvarPagamentosCompleto, ouvirOuvidoria, adicionarMensagemOuvidoria, ouvirTodasOuvidorias, criarConvite, buscarConvite, marcarConvitePreenchido } from "./services/dataService";
 
 // ── DADOS ────────────────────────────────────────────────────────────────────
@@ -3993,9 +3993,16 @@ function diagnosticoMembroInferior(pontos){
     const pq = pontos[l.quadril], pj = pontos[l.joelho], pt = pontos[l.tornozelo];
     if(!pq || !pj || !pt) return {chave:l.chave, label:l.label, status:"sem-dados"};
 
-    // Desvio do joelho e do tornozelo em relacao a vertical que desce do quadril
-    const diffJoelho = pj.x - pq.x;
-    const diffTornozelo = pt.x - pq.x;
+    // Desvio do joelho e do tornozelo em relacao a vertical que desce do quadril.
+    // Numa foto de FRENTE, a perna direita da pessoa aparece do lado ESQUERDO da
+    // imagem (espelhamento natural de estar de frente pra camera), e a perna
+    // esquerda aparece do lado direito. Por isso "afastar do centro do corpo"
+    // (fora) corresponde a x crescente para o lado esquerdo (membroE) mas a x
+    // decrescente para o lado direito (membroD). O fator abaixo normaliza isso
+    // para que diffPositivo sempre signifique "para fora" independente do lado.
+    const fatorLado = l.chave === "membroD" ? -1 : 1;
+    const diffJoelho = fatorLado * (pj.x - pq.x);
+    const diffTornozelo = fatorLado * (pt.x - pq.x);
     const maiorDesvio = Math.max(Math.abs(diffJoelho), Math.abs(diffTornozelo));
 
     let status, diagnostico;
@@ -4811,24 +4818,39 @@ export default function App(){
 
   const [currentUser,setCurrentUser]=useState(null);
   const [authCarregando,setAuthCarregando]=useState(true);
+  // Indica se existe QUALQUER sessão do Firebase Auth ativa — incluindo a
+  // sessão anônima criada automaticamente quando ninguém está logado. É
+  // diferente de "currentUser": currentUser só existe para profissionais
+  // logados de verdade (ou aluno selecionado). sessaoFirebaseAtiva serve
+  // apenas para liberar a leitura de profissionais/alunos (necessária para
+  // a tela de busca "Acesso Aluno" funcionar mesmo sem login real).
+  const [sessaoFirebaseAtiva,setSessaoFirebaseAtiva]=useState(false);
 
   // Observa o estado de login do Firebase. Quando o usuario ja tem sessao
   // ativa (ex: recarregou a pagina), busca os dados completos dele no Firestore.
   useEffect(()=>{
     const unsubscribe = observarUsuario(async (usuarioFirebase)=>{
       if(usuarioFirebase){
-        try{
-          const dadosProf = await buscarProfissional(usuarioFirebase.uid);
-          if(dadosProf){
-            setCurrentUser({...dadosProf, id: usuarioFirebase.uid});
+        setSessaoFirebaseAtiva(true);
+        if(!usuarioFirebase.isAnonymous){
+          try{
+            const dadosProf = await buscarProfissional(usuarioFirebase.uid);
+            if(dadosProf){
+              setCurrentUser({...dadosProf, id: usuarioFirebase.uid});
+            }
+          }catch(e){
+            console.error("Erro ao restaurar sessão:", e);
           }
-        }catch(e){
-          console.error("Erro ao restaurar sessão:", e);
         }
       } else {
         // Sem sessao Firebase ativa. Pode ainda ser um "aluno" logado localmente
         // (alunos nao usam Firebase Authentication, apenas selecionam o nome).
         setCurrentUser(prev => (prev && prev.role==="aluno") ? prev : null);
+        setSessaoFirebaseAtiva(false);
+        // Cria uma sessao anonima automaticamente so para satisfazer as regras
+        // do Firestore (leitura exige autenticacao) — permite que a tela de
+        // busca "Acesso Aluno" funcione mesmo sem nenhum login real ainda.
+        entrarAnonimo();
       }
       setAuthCarregando(false);
     });
@@ -4839,21 +4861,18 @@ export default function App(){
   const [alunos,setAlunos]=useState([]);
 
   // Mantem a lista de profissionais e alunos sincronizada em tempo real com o Firestore.
-  // IMPORTANTE: só espera authCarregando terminar (nao currentUser existir),
-  // ja que as regras do Firestore permitem leitura livre dessas duas
-  // colecoes (alunos e profissionais nao exigem login para ler). Exigir
-  // currentUser aqui criava uma corrida real: em conexoes mais lentas
-  // (celular), authCarregando podia virar false ANTES do Firebase terminar
-  // de popular currentUser — e como o efeito so roda de novo se um desses
-  // valores mudar, a lista ficava vazia ate a pessoa deslogar e logar de
-  // novo (o que forcava uma nova tentativa).
+  // IMPORTANTE: inicia assim que existir QUALQUER sessão do Firebase (inclusive
+  // anônima) — não apenas quando currentUser existir. Isso é o que permite a
+  // tela "Acesso Aluno" (busca por nome) funcionar mesmo antes de qualquer
+  // login real, evitando a lista aparecer vazia de forma intermitente.
   useEffect(()=>{
-    if(authCarregando) return; // aguarda so a confirmacao inicial do Firebase Auth
+    if(authCarregando) return; // aguarda a confirmacao do login antes de tentar ler
+    if(!sessaoFirebaseAtiva) return;   // sem sessao (nem anonima), nao adianta tentar (regras exigem login)
 
     const unsubProf = ouvirProfissionais((lista)=>setProfissionais(lista));
     const unsubAlunos = ouvirAlunos((lista)=>setAlunos(lista));
     return ()=>{ unsubProf(); unsubAlunos(); };
-  }, [authCarregando]);
+  }, [authCarregando, sessaoFirebaseAtiva]);
 
   const [view,setView]=useState("profissionais");
   const [profSelecionado,setProfSelecionado]=useState(null);
@@ -4899,15 +4918,13 @@ export default function App(){
 
   // Mantem todas as ouvidorias sincronizadas em tempo real (necessario para
   // a tela de Ouvidoria Admin, que mostra mensagens de todos os alunos juntas).
-  // So espera authCarregando (nao currentUser), ja que a regra do Firestore
-  // permite leitura livre dessa colecao — mesma correcao aplicada a
-  // alunos/profissionais para evitar a mesma corrida em conexoes lentas.
   useEffect(()=>{
     if(authCarregando) return;
+    if(!currentUser) return;
 
     const unsubOuvidorias = ouvirTodasOuvidorias((todas)=>setOuvidorias(todas));
     return ()=>unsubOuvidorias();
-  }, [authCarregando]);
+  }, [authCarregando, currentUser?.id]);
 
   const [backupTexto,setBackupTexto]=useState(null);
   const [modalWhatsAppAluno,setModalWhatsAppAluno]=useState(null);
@@ -8183,10 +8200,33 @@ function LoginProfissionalForm({onVoltar, onLoginProf}){
 function LoginScreen({profissionais,alunos,onLoginProf,onLoginAluno}){
   const [tela,setTela]=useState("home"); // "home" | "prof" | "aluno"
   const [busca,setBusca]=useState("");
+  // Etapa de verificação de identidade: depois de escolher o nome na busca,
+  // o aluno precisa confirmar a própria data de nascimento antes de entrar.
+  // Isso evita que qualquer pessoa que saiba o nome de outro aluno consiga
+  // ver o perfil dele só clicando no resultado da busca.
+  const [alunoParaVerificar,setAlunoParaVerificar]=useState(null);
+  const [dataDigitada,setDataDigitada]=useState("");
+  const [erroVerificacao,setErroVerificacao]=useState("");
 
   const resultados=busca.trim().length>=2
     ? alunos.filter(a=>a.nome.toLowerCase().includes(busca.toLowerCase())).slice(0,5)
     : [];
+
+  const confirmarIdentidade=()=>{
+    if(!dataDigitada){ setErroVerificacao("Informe a data de nascimento."); return; }
+    if(!alunoParaVerificar.dataNasc){
+      // Aluno sem data de nascimento cadastrada: não tem como verificar.
+      // Libera o acesso mesmo assim para não travar quem já era cadastrado
+      // sem esse campo preenchido, mas isso é raro em cadastros novos.
+      onLoginAluno(alunoParaVerificar);
+      return;
+    }
+    if(dataDigitada===alunoParaVerificar.dataNasc){
+      onLoginAluno(alunoParaVerificar);
+    } else {
+      setErroVerificacao("Data de nascimento não confere. Tente novamente.");
+    }
+  };
 
   const bg="radial-gradient(ellipse at top,#1a0800 0%,#0a0a0a 60%)";
 
@@ -8273,6 +8313,34 @@ function LoginScreen({profissionais,alunos,onLoginProf,onLoginAluno}){
     <LoginProfissionalForm onVoltar={()=>setTela("home")} onLoginProf={onLoginProf}/>
   );
 
+  // ── TELA VERIFICAÇÃO DE IDENTIDADE (data de nascimento) ──
+  if(alunoParaVerificar) return(
+    <div style={css.app}><GF/>
+      <header style={css.hdr}>
+        <button style={css.btnB} onClick={()=>{setAlunoParaVerificar(null);setErroVerificacao("");}}>← Voltar</button>
+        <div style={{fontWeight:700,fontSize:15}}>Confirmar identidade</div>
+        <div style={{width:70}}/>
+      </header>
+      <div style={css.wrap}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
+          <Avatar nome={alunoParaVerificar.nome} foto={alunoParaVerificar.foto} size={48}/>
+          <div style={{fontWeight:700,fontSize:16,color:C.text}}>{alunoParaVerificar.nome}</div>
+        </div>
+        <div style={{fontSize:13,color:C.muted,marginBottom:16,lineHeight:1.6}}>
+          Por segurança, confirme sua data de nascimento para acessar seu perfil.
+        </div>
+        <DateScrollPicker label="Data de nascimento" value={dataDigitada} onChange={v=>{setDataDigitada(v);setErroVerificacao("");}}/>
+        {erroVerificacao&&(
+          <div style={{color:"#f87171",fontSize:12,marginTop:10}}>{erroVerificacao}</div>
+        )}
+        <button onClick={confirmarIdentidade}
+          style={{...css.btnA,width:"100%",marginTop:20,padding:"13px 0",fontSize:15}}>
+          Confirmar e entrar
+        </button>
+      </div>
+    </div>
+  );
+
   // ── TELA ALUNO ──
   return(
     <div style={css.app}><GF/>
@@ -8296,13 +8364,12 @@ function LoginScreen({profissionais,alunos,onLoginProf,onLoginAluno}){
           resultados.length>0
             ? <div style={{display:"grid",gap:10}}>
                 {resultados.map(a=>(
-                  <button key={a.id} onClick={()=>onLoginAluno(a)}
+                  <button key={a.id} onClick={()=>{setAlunoParaVerificar(a);setDataDigitada("");setErroVerificacao("");}}
                     style={{background:C.card,border:"1px solid #2e1e0a",borderRadius:12,padding:"14px 16px",
                       display:"flex",alignItems:"center",gap:14,cursor:"pointer",textAlign:"left",width:"100%"}}>
                     <Avatar nome={a.nome} foto={a.foto} size={44}/>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontWeight:700,fontSize:15,color:C.text}}>{a.nome}</div>
-                      <div style={{fontSize:12,color:C.muted,marginTop:2}}>{a.objetivo} · {a.nivelExperiencia||"--"}</div>
                     </div>
                     <span style={{color:"#34d399",fontSize:20}}>→</span>
                   </button>
