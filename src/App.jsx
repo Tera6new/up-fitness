@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { fazerLogin, observarUsuario, fazerLogout, criarConta, entrarAnonimo } from "./services/authService";
+import { fazerLogin, observarUsuario, fazerLogout, criarConta } from "./services/authService";
 import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia, salvarAgendaCompleta, ouvirTodosPagamentos, atualizarMesPagamento, salvarPagamentosCompleto, ouvirOuvidoria, adicionarMensagemOuvidoria, ouvirTodasOuvidorias, criarConvite, buscarConvite, marcarConvitePreenchido } from "./services/dataService";
 
 // ── DADOS ────────────────────────────────────────────────────────────────────
@@ -3951,6 +3951,16 @@ const PONTOS_PERFIL = [
 // quadris, joelhos, tornozelos), compara a altura (Y) dos dois lados — se a
 // diferenca for pequena, esta nivelado; se for grande, ha inclinacao,
 // indicando o lado mais alto.
+// Calcula o angulo (em graus) da linha entre dois pontos, em relacao a
+// horizontal. Retorna sempre um valor positivo (0 = perfeitamente nivelado);
+// o sinal da diferenca original indica qual lado esta mais alto.
+function anguloEntrePontos(pe, pd){
+  const dx = pd.x - pe.x;
+  const dy = pd.y - pe.y; // y maior = mais para baixo na tela
+  const rad = Math.atan2(dy, dx);
+  return rad * (180/Math.PI);
+}
+
 function diagnosticoFrente(pontos){
   const pares = [
     {chave:"ombros", e:"ombroE", d:"ombroD", label:"Ombros"},
@@ -3961,22 +3971,17 @@ function diagnosticoFrente(pontos){
   return pares.map(p=>{
     const pe = pontos[p.e], pd = pontos[p.d];
     if(!pe || !pd) return {chave:p.chave, label:p.label, status:"sem-dados"};
-    const diffY = pe.y - pd.y; // positivo = esquerdo mais baixo (y maior = mais para baixo na tela)
-    const diffAbs = Math.abs(diffY);
-    let status, diagnostico, ladoAlto;
-    if(diffAbs < 1.0){
-      status = "normal";
-      diagnostico = "Nivelado — sem desvio significativo.";
-    } else if(diffAbs < 2.5){
-      status = "leve";
-      ladoAlto = diffY > 0 ? "direito" : "esquerdo";
-      diagnostico = `Leve inclinação — lado ${ladoAlto} ligeiramente mais alto.`;
-    } else {
-      status = "atencao";
-      ladoAlto = diffY > 0 ? "direito" : "esquerdo";
-      diagnostico = `Inclinação perceptível — lado ${ladoAlto} mais alto. Recomenda-se atenção.`;
-    }
-    return {chave:p.chave, label:p.label, status, diagnostico, diferenca:diffAbs.toFixed(1)};
+    const angulo = anguloEntrePontos(pe, pd); // positivo = lado direito mais baixo
+    const anguloAbs = Math.abs(angulo);
+    let status;
+    if(anguloAbs < 1.5) status = "normal";
+    else if(anguloAbs < 4) status = "leve";
+    else status = "atencao";
+    const ladoAlto = anguloAbs < 0.1 ? null : (angulo > 0 ? "esquerdo" : "direito");
+    const diagnostico = ladoAlto
+      ? `${anguloAbs.toFixed(1)}° de desvio — lado ${ladoAlto} mais alto.`
+      : "Nivelado — sem desvio.";
+    return {chave:p.chave, label:p.label, status, diagnostico, graus:anguloAbs.toFixed(1)};
   });
 }
 
@@ -3984,6 +3989,16 @@ function diagnosticoFrente(pontos){
 // usa o quadril de cada lado como base da linha vertical, e mede o desvio
 // horizontal do joelho e do tornozelo daquele mesmo lado em relação a essa
 // linha — identifica padrões como joelho valgo/varo ou desvio do tornozelo.
+// Calcula o angulo (em graus) de uma linha entre dois pontos em relacao a
+// VERTICAL (0 = perfeitamente reto/vertical). Usado para medir o quanto uma
+// perna se desvia da linha ideal quadril-tornozelo.
+function anguloEmRelacaoVertical(pTopo, pBase){
+  const dx = pBase.x - pTopo.x;
+  const dy = pBase.y - pTopo.y;
+  const rad = Math.atan2(dx, dy); // invertido de atan2 padrao: mede em relacao ao eixo Y
+  return rad * (180/Math.PI);
+}
+
 function diagnosticoMembroInferior(pontos){
   const lados = [
     {chave:"membroE", label:"Alinhamento — Perna Esquerda", quadril:"quadrilE", joelho:"joelhoE", tornozelo:"tornozeloE"},
@@ -3993,34 +4008,21 @@ function diagnosticoMembroInferior(pontos){
     const pq = pontos[l.quadril], pj = pontos[l.joelho], pt = pontos[l.tornozelo];
     if(!pq || !pj || !pt) return {chave:l.chave, label:l.label, status:"sem-dados"};
 
-    // Desvio do joelho e do tornozelo em relacao a vertical que desce do quadril.
-    // Numa foto de FRENTE, a perna direita da pessoa aparece do lado ESQUERDO da
-    // imagem (espelhamento natural de estar de frente pra camera), e a perna
-    // esquerda aparece do lado direito. Por isso "afastar do centro do corpo"
-    // (fora) corresponde a x crescente para o lado esquerdo (membroE) mas a x
-    // decrescente para o lado direito (membroD). O fator abaixo normaliza isso
-    // para que diffPositivo sempre signifique "para fora" independente do lado.
-    const fatorLado = l.chave === "membroD" ? -1 : 1;
-    const diffJoelho = fatorLado * (pj.x - pq.x);
-    const diffTornozelo = fatorLado * (pt.x - pq.x);
-    const maiorDesvio = Math.max(Math.abs(diffJoelho), Math.abs(diffTornozelo));
+    // Angulo da perna inteira (quadril ate tornozelo) em relacao a vertical.
+    const angulo = anguloEmRelacaoVertical(pq, pt);
+    const anguloAbs = Math.abs(angulo);
 
-    let status, diagnostico;
-    if(maiorDesvio < 1.5){
-      status = "normal";
-      diagnostico = "Membro alinhado — quadril, joelho e tornozelo na mesma vertical.";
-    } else if(maiorDesvio < 3.5){
-      status = "leve";
-      const pontoMaisDesviado = Math.abs(diffJoelho) >= Math.abs(diffTornozelo) ? "joelho" : "tornozelo";
-      const direcao = (pontoMaisDesviado==="joelho" ? diffJoelho : diffTornozelo) > 0 ? "para fora" : "para dentro";
-      diagnostico = `Leve desvio do ${pontoMaisDesviado} ${direcao} em relação à linha do quadril.`;
-    } else {
-      status = "atencao";
-      const pontoMaisDesviado = Math.abs(diffJoelho) >= Math.abs(diffTornozelo) ? "joelho" : "tornozelo";
-      const direcao = (pontoMaisDesviado==="joelho" ? diffJoelho : diffTornozelo) > 0 ? "para fora" : "para dentro";
-      diagnostico = `Desvio perceptível do ${pontoMaisDesviado} ${direcao} — pode indicar padrão valgo/varo. Recomenda-se atenção.`;
-    }
-    return {chave:l.chave, label:l.label, status, diagnostico, diferenca:maiorDesvio.toFixed(1)};
+    let status;
+    if(anguloAbs < 2) status = "normal";
+    else if(anguloAbs < 5) status = "leve";
+    else status = "atencao";
+
+    const direcao = anguloAbs < 0.1 ? null : (angulo > 0 ? "para fora" : "para dentro");
+    const diagnostico = direcao
+      ? `${anguloAbs.toFixed(1)}° de desvio ${direcao} em relação à vertical do quadril.`
+      : "Perna alinhada — sem desvio da vertical.";
+
+    return {chave:l.chave, label:l.label, status, diagnostico, graus:anguloAbs.toFixed(1)};
   });
 }
 
@@ -4322,12 +4324,12 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
                       onMouseDown={e=>iniciarArrastePonto(e,p.k)}
                       onTouchStart={e=>iniciarArrastePonto(e,p.k)}
                       style={{position:"absolute",left:pt.x+"%",top:pt.y+"%",
-                        width:16,height:16,marginLeft:-8,marginTop:-8,borderRadius:"50%",
+                        width:22,height:22,marginLeft:-11,marginTop:-11,borderRadius:"50%",
                         background:pontoAtivo===p.k?C.accent:"#34d399",border:"2px solid #fff",
                         boxShadow:"0 0 6px #000",cursor:"grab",
                         transform:`scale(${1/zoom})`,
                         display:"flex",alignItems:"center",justifyContent:"center"}}>
-                      <div style={{width:4,height:4,borderRadius:"50%",background:"#fff"}}/>
+                      <div style={{width:6,height:6,borderRadius:"50%",background:"#fff"}}/>
                     </div>
                   );
                 })}
@@ -4442,7 +4444,7 @@ function FotoPosturalComLinhas({tipo, foto, pontos}){
   if(!foto) return null;
   return(
     <div style={{position:"relative",width:"100%",borderRadius:8,overflow:"hidden",border:"1px solid #2a1a08"}}>
-      <img src={foto} alt={tipo} style={{width:"100%",display:"block"}}/>
+      <img src={foto} alt={tipo} style={{width:"100%",aspectRatio:"3/4",objectFit:"cover",display:"block"}}/>
       {pontos&&(
         <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",pointerEvents:"none"}}>
           {tipo==="frente" && PONTOS_FRENTE.filter((p,i)=>i%2===0).map(p=>{
@@ -4490,7 +4492,10 @@ function FileiraCardsPostural({itens, onSelecionar}){
               display:"flex",flexDirection:"column",alignItems:"flex-start",gap:4}}>
             <div style={{width:8,height:8,borderRadius:"50%",background:cor}}/>
             <div style={{fontWeight:700,fontSize:11,color:C.text,whiteSpace:"nowrap"}}>{item.label}</div>
-            <div style={{fontSize:10,color:cor,fontWeight:600}}>{LABELS_STATUS_POSTURAL[item.status]}</div>
+            {item.graus!==undefined
+              ? <div style={{fontSize:13,color:cor,fontWeight:800}}>{item.graus}°</div>
+              : <div style={{fontSize:10,color:cor,fontWeight:600}}>{LABELS_STATUS_POSTURAL[item.status]}</div>
+            }
           </button>
         );
       })}
@@ -4509,7 +4514,10 @@ function CardDiagnosticoPostural({item, onClick}){
       <div style={{width:10,height:10,borderRadius:"50%",background:cor,flexShrink:0}}/>
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontWeight:700,fontSize:14,color:C.text}}>{item.label}</div>
-        <div style={{fontSize:11,color:cor,fontWeight:600,marginTop:2}}>{LABELS_STATUS_POSTURAL[item.status]}</div>
+        {item.graus!==undefined
+          ? <div style={{fontSize:15,color:cor,fontWeight:800,marginTop:2}}>{item.graus}°</div>
+          : <div style={{fontSize:11,color:cor,fontWeight:600,marginTop:2}}>{LABELS_STATUS_POSTURAL[item.status]}</div>
+        }
       </div>
       <span style={{color:C.muted,fontSize:18}}>›</span>
     </button>
@@ -4527,15 +4535,20 @@ function ModalDetalhePostural({item, onClose}){
           <button onClick={onClose}
             style={{background:"#1c1c1c",border:"1px solid #332010",color:C.text,borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>✕</button>
         </div>
-        <div style={{background:cor+"15",border:"1px solid "+cor+"30",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
-          <div style={{fontSize:11,fontWeight:700,color:cor,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>
-            {LABELS_STATUS_POSTURAL[item.status]}
+        {item.graus!==undefined&&(
+          <div style={{textAlign:"center",marginBottom:14}}>
+            <div style={{fontSize:42,fontWeight:800,color:cor}}>{item.graus}°</div>
+            <div style={{fontSize:11,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:.8}}>{LABELS_STATUS_POSTURAL[item.status]}</div>
           </div>
+        )}
+        <div style={{background:cor+"15",border:"1px solid "+cor+"30",borderRadius:10,padding:"12px 14px"}}>
+          {item.graus===undefined&&(
+            <div style={{fontSize:11,fontWeight:700,color:cor,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>
+              {LABELS_STATUS_POSTURAL[item.status]}
+            </div>
+          )}
           <div style={{fontSize:14,color:C.text,lineHeight:1.6}}>{item.diagnostico}</div>
         </div>
-        {item.diferenca&&(
-          <div style={{fontSize:12,color:C.muted}}>Desvio medido: {item.diferenca}% da imagem</div>
-        )}
       </div>
     </div>
   );
@@ -4818,39 +4831,24 @@ export default function App(){
 
   const [currentUser,setCurrentUser]=useState(null);
   const [authCarregando,setAuthCarregando]=useState(true);
-  // Indica se existe QUALQUER sessão do Firebase Auth ativa — incluindo a
-  // sessão anônima criada automaticamente quando ninguém está logado. É
-  // diferente de "currentUser": currentUser só existe para profissionais
-  // logados de verdade (ou aluno selecionado). sessaoFirebaseAtiva serve
-  // apenas para liberar a leitura de profissionais/alunos (necessária para
-  // a tela de busca "Acesso Aluno" funcionar mesmo sem login real).
-  const [sessaoFirebaseAtiva,setSessaoFirebaseAtiva]=useState(false);
 
   // Observa o estado de login do Firebase. Quando o usuario ja tem sessao
   // ativa (ex: recarregou a pagina), busca os dados completos dele no Firestore.
   useEffect(()=>{
     const unsubscribe = observarUsuario(async (usuarioFirebase)=>{
       if(usuarioFirebase){
-        setSessaoFirebaseAtiva(true);
-        if(!usuarioFirebase.isAnonymous){
-          try{
-            const dadosProf = await buscarProfissional(usuarioFirebase.uid);
-            if(dadosProf){
-              setCurrentUser({...dadosProf, id: usuarioFirebase.uid});
-            }
-          }catch(e){
-            console.error("Erro ao restaurar sessão:", e);
+        try{
+          const dadosProf = await buscarProfissional(usuarioFirebase.uid);
+          if(dadosProf){
+            setCurrentUser({...dadosProf, id: usuarioFirebase.uid});
           }
+        }catch(e){
+          console.error("Erro ao restaurar sessão:", e);
         }
       } else {
         // Sem sessao Firebase ativa. Pode ainda ser um "aluno" logado localmente
         // (alunos nao usam Firebase Authentication, apenas selecionam o nome).
         setCurrentUser(prev => (prev && prev.role==="aluno") ? prev : null);
-        setSessaoFirebaseAtiva(false);
-        // Cria uma sessao anonima automaticamente so para satisfazer as regras
-        // do Firestore (leitura exige autenticacao) — permite que a tela de
-        // busca "Acesso Aluno" funcione mesmo sem nenhum login real ainda.
-        entrarAnonimo();
       }
       setAuthCarregando(false);
     });
@@ -4861,18 +4859,21 @@ export default function App(){
   const [alunos,setAlunos]=useState([]);
 
   // Mantem a lista de profissionais e alunos sincronizada em tempo real com o Firestore.
-  // IMPORTANTE: inicia assim que existir QUALQUER sessão do Firebase (inclusive
-  // anônima) — não apenas quando currentUser existir. Isso é o que permite a
-  // tela "Acesso Aluno" (busca por nome) funcionar mesmo antes de qualquer
-  // login real, evitando a lista aparecer vazia de forma intermitente.
+  // IMPORTANTE: só espera authCarregando terminar (nao currentUser existir),
+  // ja que as regras do Firestore permitem leitura livre dessas duas
+  // colecoes (alunos e profissionais nao exigem login para ler). Exigir
+  // currentUser aqui criava uma corrida real: em conexoes mais lentas
+  // (celular), authCarregando podia virar false ANTES do Firebase terminar
+  // de popular currentUser — e como o efeito so roda de novo se um desses
+  // valores mudar, a lista ficava vazia ate a pessoa deslogar e logar de
+  // novo (o que forcava uma nova tentativa).
   useEffect(()=>{
-    if(authCarregando) return; // aguarda a confirmacao do login antes de tentar ler
-    if(!sessaoFirebaseAtiva) return;   // sem sessao (nem anonima), nao adianta tentar (regras exigem login)
+    if(authCarregando) return; // aguarda so a confirmacao inicial do Firebase Auth
 
     const unsubProf = ouvirProfissionais((lista)=>setProfissionais(lista));
     const unsubAlunos = ouvirAlunos((lista)=>setAlunos(lista));
     return ()=>{ unsubProf(); unsubAlunos(); };
-  }, [authCarregando, sessaoFirebaseAtiva]);
+  }, [authCarregando]);
 
   const [view,setView]=useState("profissionais");
   const [profSelecionado,setProfSelecionado]=useState(null);
@@ -4918,13 +4919,15 @@ export default function App(){
 
   // Mantem todas as ouvidorias sincronizadas em tempo real (necessario para
   // a tela de Ouvidoria Admin, que mostra mensagens de todos os alunos juntas).
+  // So espera authCarregando (nao currentUser), ja que a regra do Firestore
+  // permite leitura livre dessa colecao — mesma correcao aplicada a
+  // alunos/profissionais para evitar a mesma corrida em conexoes lentas.
   useEffect(()=>{
     if(authCarregando) return;
-    if(!currentUser) return;
 
     const unsubOuvidorias = ouvirTodasOuvidorias((todas)=>setOuvidorias(todas));
     return ()=>unsubOuvidorias();
-  }, [authCarregando, currentUser?.id]);
+  }, [authCarregando]);
 
   const [backupTexto,setBackupTexto]=useState(null);
   const [modalWhatsAppAluno,setModalWhatsAppAluno]=useState(null);
@@ -8200,33 +8203,10 @@ function LoginProfissionalForm({onVoltar, onLoginProf}){
 function LoginScreen({profissionais,alunos,onLoginProf,onLoginAluno}){
   const [tela,setTela]=useState("home"); // "home" | "prof" | "aluno"
   const [busca,setBusca]=useState("");
-  // Etapa de verificação de identidade: depois de escolher o nome na busca,
-  // o aluno precisa confirmar a própria data de nascimento antes de entrar.
-  // Isso evita que qualquer pessoa que saiba o nome de outro aluno consiga
-  // ver o perfil dele só clicando no resultado da busca.
-  const [alunoParaVerificar,setAlunoParaVerificar]=useState(null);
-  const [dataDigitada,setDataDigitada]=useState("");
-  const [erroVerificacao,setErroVerificacao]=useState("");
 
   const resultados=busca.trim().length>=2
     ? alunos.filter(a=>a.nome.toLowerCase().includes(busca.toLowerCase())).slice(0,5)
     : [];
-
-  const confirmarIdentidade=()=>{
-    if(!dataDigitada){ setErroVerificacao("Informe a data de nascimento."); return; }
-    if(!alunoParaVerificar.dataNasc){
-      // Aluno sem data de nascimento cadastrada: não tem como verificar.
-      // Libera o acesso mesmo assim para não travar quem já era cadastrado
-      // sem esse campo preenchido, mas isso é raro em cadastros novos.
-      onLoginAluno(alunoParaVerificar);
-      return;
-    }
-    if(dataDigitada===alunoParaVerificar.dataNasc){
-      onLoginAluno(alunoParaVerificar);
-    } else {
-      setErroVerificacao("Data de nascimento não confere. Tente novamente.");
-    }
-  };
 
   const bg="radial-gradient(ellipse at top,#1a0800 0%,#0a0a0a 60%)";
 
@@ -8313,34 +8293,6 @@ function LoginScreen({profissionais,alunos,onLoginProf,onLoginAluno}){
     <LoginProfissionalForm onVoltar={()=>setTela("home")} onLoginProf={onLoginProf}/>
   );
 
-  // ── TELA VERIFICAÇÃO DE IDENTIDADE (data de nascimento) ──
-  if(alunoParaVerificar) return(
-    <div style={css.app}><GF/>
-      <header style={css.hdr}>
-        <button style={css.btnB} onClick={()=>{setAlunoParaVerificar(null);setErroVerificacao("");}}>← Voltar</button>
-        <div style={{fontWeight:700,fontSize:15}}>Confirmar identidade</div>
-        <div style={{width:70}}/>
-      </header>
-      <div style={css.wrap}>
-        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
-          <Avatar nome={alunoParaVerificar.nome} foto={alunoParaVerificar.foto} size={48}/>
-          <div style={{fontWeight:700,fontSize:16,color:C.text}}>{alunoParaVerificar.nome}</div>
-        </div>
-        <div style={{fontSize:13,color:C.muted,marginBottom:16,lineHeight:1.6}}>
-          Por segurança, confirme sua data de nascimento para acessar seu perfil.
-        </div>
-        <DateScrollPicker label="Data de nascimento" value={dataDigitada} onChange={v=>{setDataDigitada(v);setErroVerificacao("");}}/>
-        {erroVerificacao&&(
-          <div style={{color:"#f87171",fontSize:12,marginTop:10}}>{erroVerificacao}</div>
-        )}
-        <button onClick={confirmarIdentidade}
-          style={{...css.btnA,width:"100%",marginTop:20,padding:"13px 0",fontSize:15}}>
-          Confirmar e entrar
-        </button>
-      </div>
-    </div>
-  );
-
   // ── TELA ALUNO ──
   return(
     <div style={css.app}><GF/>
@@ -8364,12 +8316,13 @@ function LoginScreen({profissionais,alunos,onLoginProf,onLoginAluno}){
           resultados.length>0
             ? <div style={{display:"grid",gap:10}}>
                 {resultados.map(a=>(
-                  <button key={a.id} onClick={()=>{setAlunoParaVerificar(a);setDataDigitada("");setErroVerificacao("");}}
+                  <button key={a.id} onClick={()=>onLoginAluno(a)}
                     style={{background:C.card,border:"1px solid #2e1e0a",borderRadius:12,padding:"14px 16px",
                       display:"flex",alignItems:"center",gap:14,cursor:"pointer",textAlign:"left",width:"100%"}}>
                     <Avatar nome={a.nome} foto={a.foto} size={44}/>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontWeight:700,fontSize:15,color:C.text}}>{a.nome}</div>
+                      <div style={{fontSize:12,color:C.muted,marginTop:2}}>{a.objetivo} · {a.nivelExperiencia||"--"}</div>
                     </div>
                     <span style={{color:"#34d399",fontSize:20}}>→</span>
                   </button>
