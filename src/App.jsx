@@ -4322,12 +4322,12 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
                       onMouseDown={e=>iniciarArrastePonto(e,p.k)}
                       onTouchStart={e=>iniciarArrastePonto(e,p.k)}
                       style={{position:"absolute",left:pt.x+"%",top:pt.y+"%",
-                        width:22,height:22,marginLeft:-11,marginTop:-11,borderRadius:"50%",
+                        width:16,height:16,marginLeft:-8,marginTop:-8,borderRadius:"50%",
                         background:pontoAtivo===p.k?C.accent:"#34d399",border:"2px solid #fff",
                         boxShadow:"0 0 6px #000",cursor:"grab",
                         transform:`scale(${1/zoom})`,
                         display:"flex",alignItems:"center",justifyContent:"center"}}>
-                      <div style={{width:6,height:6,borderRadius:"50%",background:"#fff"}}/>
+                      <div style={{width:4,height:4,borderRadius:"50%",background:"#fff"}}/>
                     </div>
                   );
                 })}
