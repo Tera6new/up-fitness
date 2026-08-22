@@ -4442,7 +4442,7 @@ function FotoPosturalComLinhas({tipo, foto, pontos}){
   if(!foto) return null;
   return(
     <div style={{position:"relative",width:"100%",borderRadius:8,overflow:"hidden",border:"1px solid #2a1a08"}}>
-      <img src={foto} alt={tipo} style={{width:"100%",aspectRatio:"3/4",objectFit:"cover",display:"block"}}/>
+      <img src={foto} alt={tipo} style={{width:"100%",display:"block"}}/>
       {pontos&&(
         <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",pointerEvents:"none"}}>
           {tipo==="frente" && PONTOS_FRENTE.filter((p,i)=>i%2===0).map(p=>{
