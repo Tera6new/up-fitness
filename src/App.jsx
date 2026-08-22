@@ -4142,10 +4142,26 @@ function CapturaPosturalView({tipo, fotoExistente, pontosExistentes, onSalvar, o
 
   // Converte a posicao de um toque/clique na tela para percentual (0-100)
   // dentro da imagem original, levando em conta o zoom/pan aplicados.
+  // Converte a posicao de um toque/clique na tela para percentual (0-100)
+  // dentro da imagem ORIGINAL (sem zoom/pan). Usa o container FIXO (sem
+  // transform) como referencia de area visivel, e desfaz manualmente o
+  // zoom/pan aplicados na imagem — usar getBoundingClientRect() direto na
+  // <img> nao funciona corretamente aqui, porque com zoom aplicado a
+  // imagem "vaza" para fora da area visivel (cortada pelo overflow:hidden
+  // do container), fazendo o calculo de largura/altura ficar incorreto.
   const coordenadaParaPercentual = (clientX, clientY)=>{
-    const rect = imgRef.current.getBoundingClientRect();
-    const x = ((clientX - rect.left) / rect.width) * 100;
-    const y = ((clientY - rect.top) / rect.height) * 100;
+    const rectContainer = containerRef.current.getBoundingClientRect();
+    // Posicao do toque relativa ao container fixo (0 a largura/altura do container)
+    const xContainer = clientX - rectContainer.left;
+    const yContainer = clientY - rectContainer.top;
+    // Desfaz o pan e o zoom: a imagem ampliada tem seu centro deslocado por
+    // `pan` e escalada por `zoom` a partir do centro do container.
+    const centroX = rectContainer.width/2;
+    const centroY = rectContainer.height/2;
+    const xImagem = (xContainer - centroX - pan.x)/zoom + centroX;
+    const yImagem = (yContainer - centroY - pan.y)/zoom + centroY;
+    const x = (xImagem/rectContainer.width) * 100;
+    const y = (yImagem/rectContainer.height) * 100;
     return { x: Math.max(0,Math.min(100,x)), y: Math.max(0,Math.min(100,y)) };
   };
 
