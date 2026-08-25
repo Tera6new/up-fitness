@@ -3971,13 +3971,18 @@ function diagnosticoFrente(pontos){
   return pares.map(p=>{
     const pe = pontos[p.e], pd = pontos[p.d];
     if(!pe || !pd) return {chave:p.chave, label:p.label, status:"sem-dados"};
-    const angulo = anguloEntrePontos(pe, pd); // positivo = lado direito mais baixo
+    // Numa foto de FRENTE, o ombro/quadril/joelho/tornozelo DIREITO da pessoa
+    // aparece do lado ESQUERDO da imagem (espelhamento natural de estar de
+    // frente pra câmera) — ou seja, pd tem x menor que pe na tela. Por isso
+    // passamos pd primeiro: assim dx = pe.x - pd.x fica positivo quando a
+    // pessoa está nivelada, e o ângulo sai perto de 0° (não perto de 180°).
+    const angulo = anguloEntrePontos(pd, pe); // positivo = lado direito mais alto
     const anguloAbs = Math.abs(angulo);
     let status;
     if(anguloAbs < 1.5) status = "normal";
     else if(anguloAbs < 4) status = "leve";
     else status = "atencao";
-    const ladoAlto = anguloAbs < 0.1 ? null : (angulo > 0 ? "esquerdo" : "direito");
+    const ladoAlto = anguloAbs < 0.1 ? null : (angulo > 0 ? "direito" : "esquerdo");
     const diagnostico = ladoAlto
       ? `${anguloAbs.toFixed(1)}° de desvio — lado ${ladoAlto} mais alto.`
       : "Nivelado — sem desvio.";
