@@ -3954,14 +3954,20 @@ const PONTOS_PERFIL = [
 // Calcula o angulo (em graus) da linha entre dois pontos, em relacao a
 // horizontal. Retorna sempre um valor positivo (0 = perfeitamente nivelado);
 // o sinal da diferenca original indica qual lado esta mais alto.
-function anguloEntrePontos(pe, pd){
-  const dx = pd.x - pe.x;
-  const dy = pd.y - pe.y; // y maior = mais para baixo na tela
+function anguloEntrePontos(pe, pd, largura=1, altura=1){
+  // pe.x/pd.x/pe.y/pd.y sao percentuais (0-100) da largura/altura da FOTO.
+  // Como a foto normalmente nao e quadrada (retrato: altura bem maior que
+  // largura), 1% de largura nao equivale a mesma distancia real que 1% de
+  // altura — multiplicar cada diferenca pela dimensao real (em pixels)
+  // da foto converte ambas pra mesma escala fisica antes do atan2, senao
+  // o angulo calculado sai inflado (ou reduzido) em relacao ao real.
+  const dx = (pd.x - pe.x) * largura;
+  const dy = (pd.y - pe.y) * altura; // y maior = mais para baixo na tela
   const rad = Math.atan2(dy, dx);
   return rad * (180/Math.PI);
 }
 
-function diagnosticoFrente(pontos){
+function diagnosticoFrente(pontos, largura=1, altura=1){
   const pares = [
     {chave:"ombros", e:"ombroE", d:"ombroD", label:"Ombros"},
     {chave:"quadris", e:"quadrilE", d:"quadrilD", label:"Quadris"},
@@ -3976,7 +3982,7 @@ function diagnosticoFrente(pontos){
     // frente pra câmera) — ou seja, pd tem x menor que pe na tela. Por isso
     // passamos pd primeiro: assim dx = pe.x - pd.x fica positivo quando a
     // pessoa está nivelada, e o ângulo sai perto de 0° (não perto de 180°).
-    const angulo = anguloEntrePontos(pd, pe); // positivo = lado direito mais alto
+    const angulo = anguloEntrePontos(pd, pe, largura, altura); // positivo = lado direito mais alto
     const anguloAbs = Math.abs(angulo);
     let status;
     if(anguloAbs < 1.5) status = "normal";
@@ -3997,14 +4003,16 @@ function diagnosticoFrente(pontos){
 // Calcula o angulo (em graus) de uma linha entre dois pontos em relacao a
 // VERTICAL (0 = perfeitamente reto/vertical). Usado para medir o quanto uma
 // perna se desvia da linha ideal quadril-tornozelo.
-function anguloEmRelacaoVertical(pTopo, pBase){
-  const dx = pBase.x - pTopo.x;
-  const dy = pBase.y - pTopo.y;
+function anguloEmRelacaoVertical(pTopo, pBase, largura=1, altura=1){
+  // Mesma correcao de proporcao aplicada em anguloEntrePontos (ver comentario
+  // acima) — necessaria porque a foto nao e quadrada.
+  const dx = (pBase.x - pTopo.x) * largura;
+  const dy = (pBase.y - pTopo.y) * altura;
   const rad = Math.atan2(dx, dy); // invertido de atan2 padrao: mede em relacao ao eixo Y
   return rad * (180/Math.PI);
 }
 
-function diagnosticoMembroInferior(pontos){
+function diagnosticoMembroInferior(pontos, largura=1, altura=1){
   const lados = [
     {chave:"membroE", label:"Alinhamento — Perna Esquerda", quadril:"quadrilE", joelho:"joelhoE", tornozelo:"tornozeloE"},
     {chave:"membroD", label:"Alinhamento — Perna Direita", quadril:"quadrilD", joelho:"joelhoD", tornozelo:"tornozeloD"},
@@ -4021,7 +4029,7 @@ function diagnosticoMembroInferior(pontos){
     // lado. O fatorLado abaixo normaliza isso para que angulo positivo
     // sempre signifique "para fora", independente da perna.
     const fatorLado = l.chave === "membroD" ? -1 : 1;
-    const angulo = fatorLado * anguloEmRelacaoVertical(pq, pt);
+    const angulo = fatorLado * anguloEmRelacaoVertical(pq, pt, largura, altura);
     const anguloAbs = Math.abs(angulo);
 
     let status;
@@ -4042,7 +4050,7 @@ function diagnosticoMembroInferior(pontos){
 // linha vertical de referencia, e mede o ANGULO (em graus) de cada ponto
 // acima em relacao a essa linha vertical — mesma logica usada no alinhamento
 // das pernas na foto de frente.
-function diagnosticoPerfil(pontos){
+function diagnosticoPerfil(pontos, largura=1, altura=1){
   const base = pontos.tornozelo;
   if(!base) return [];
   const pontosSuperiores = [
@@ -4058,7 +4066,7 @@ function diagnosticoPerfil(pontos){
     // quando o ponto de cima esta "atras" do tornozelo (topo.x<base.x) — por
     // isso o sinal do angulo fica invertido em relacao ao diffX original
     // (que era positivo = a frente); ajustamos a interpretacao abaixo.
-    const angulo = anguloEmRelacaoVertical(pt, base);
+    const angulo = anguloEmRelacaoVertical(pt, base, largura, altura);
     const anguloAbs = Math.abs(angulo);
     let status;
     if(anguloAbs < 2) status = "normal";
@@ -4583,6 +4591,19 @@ function ModalDetalhePostural({item, onClose}){
 // Gerencia o histórico de análises posturais de um aluno: registros por
 // data, cada um com foto de frente + perfil, pontos marcados e diagnóstico
 // calculado automaticamente a partir deles.
+// Carrega uma imagem (base64) apenas para descobrir suas dimensões reais em
+// pixels — necessário para corrigir a proporção nos cálculos de ângulo da
+// avaliação postural (ver comentário em anguloEntrePontos).
+function obterDimensoesImagem(base64){
+  return new Promise((resolve)=>{
+    if(!base64){ resolve({largura:1, altura:1}); return; }
+    const img = new Image();
+    img.onload = ()=> resolve({largura:img.naturalWidth||1, altura:img.naturalHeight||1});
+    img.onerror = ()=> resolve({largura:1, altura:1}); // sem dimensoes: nao aplica correcao
+    img.src = base64;
+  });
+}
+
 function AnalisePosturalView({registros, podeEditar, onSalvarRegistro, onExcluirRegistro}){
   const [modalNovoAberto, setModalNovoAberto] = useState(false);
   const [etapaCaptura, setEtapaCaptura] = useState(null); // "frente" | "perfil" | null
@@ -4623,8 +4644,15 @@ function AnalisePosturalView({registros, podeEditar, onSalvarRegistro, onExcluir
   const salvarRegistroCompleto = async ()=>{
     if(!dadosFrente && !dadosPerfil) return;
     setSalvando(true);
-    const diagFrente = dadosFrente ? [...diagnosticoFrente(dadosFrente.pontos), ...diagnosticoMembroInferior(dadosFrente.pontos)] : [];
-    const diagPerfil = dadosPerfil ? diagnosticoPerfil(dadosPerfil.pontos) : [];
+    const [dimFrente, dimPerfil] = await Promise.all([
+      obterDimensoesImagem(dadosFrente?.foto),
+      obterDimensoesImagem(dadosPerfil?.foto),
+    ]);
+    const diagFrente = dadosFrente ? [
+      ...diagnosticoFrente(dadosFrente.pontos, dimFrente.largura, dimFrente.altura),
+      ...diagnosticoMembroInferior(dadosFrente.pontos, dimFrente.largura, dimFrente.altura),
+    ] : [];
+    const diagPerfil = dadosPerfil ? diagnosticoPerfil(dadosPerfil.pontos, dimPerfil.largura, dimPerfil.altura) : [];
     const registro = {
       id: editandoRegistroId || Date.now(),
       data: novaData,
