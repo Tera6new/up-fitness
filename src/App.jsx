@@ -4039,8 +4039,9 @@ function diagnosticoMembroInferior(pontos){
 }
 
 // Calcula o diagnostico da foto de PERFIL: usa o tornozelo como base da
-// linha vertical de referencia, e mede o desvio horizontal (X) de cada
-// ponto acima em relacao a essa linha.
+// linha vertical de referencia, e mede o ANGULO (em graus) de cada ponto
+// acima em relacao a essa linha vertical — mesma logica usada no alinhamento
+// das pernas na foto de frente.
 function diagnosticoPerfil(pontos){
   const base = pontos.tornozelo;
   if(!base) return [];
@@ -4053,22 +4054,21 @@ function diagnosticoPerfil(pontos){
   return pontosSuperiores.map(p=>{
     const pt = pontos[p.k];
     if(!pt) return {chave:p.chave, label:p.label, status:"sem-dados"};
-    const diffX = pt.x - base.x; // positivo = a frente da linha, negativo = atras
-    const diffAbs = Math.abs(diffX);
-    let status, diagnostico, direcao;
-    if(diffAbs < 1.5){
-      status = "normal";
-      diagnostico = "Alinhado com a linha de referência.";
-    } else if(diffAbs < 3.5){
-      status = "leve";
-      direcao = diffX > 0 ? "à frente" : "atrás";
-      diagnostico = `Leve desvio ${direcao} da linha vertical.`;
-    } else {
-      status = "atencao";
-      direcao = diffX > 0 ? "à frente" : "atrás";
-      diagnostico = `Desvio perceptível ${direcao} da linha vertical. Recomenda-se atenção.`;
-    }
-    return {chave:p.chave, label:p.label, status, diagnostico, diferenca:diffAbs.toFixed(1)};
+    // anguloEmRelacaoVertical(topo, base): dx=base.x-topo.x, entao dx>0
+    // quando o ponto de cima esta "atras" do tornozelo (topo.x<base.x) — por
+    // isso o sinal do angulo fica invertido em relacao ao diffX original
+    // (que era positivo = a frente); ajustamos a interpretacao abaixo.
+    const angulo = anguloEmRelacaoVertical(pt, base);
+    const anguloAbs = Math.abs(angulo);
+    let status;
+    if(anguloAbs < 2) status = "normal";
+    else if(anguloAbs < 5) status = "leve";
+    else status = "atencao";
+    const direcao = anguloAbs < 0.1 ? null : (angulo > 0 ? "atrás" : "à frente");
+    const diagnostico = direcao
+      ? `${anguloAbs.toFixed(1)}° de desvio ${direcao} da linha vertical do tornozelo.`
+      : "Alinhado com a linha de referência.";
+    return {chave:p.chave, label:p.label, status, diagnostico, graus:anguloAbs.toFixed(1)};
   });
 }
 
