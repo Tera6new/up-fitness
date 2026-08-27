@@ -7385,6 +7385,32 @@ function AbaExercicios({l,form,u}){
         <div style={{fontSize:12,color:cor,fontWeight:600,whiteSpace:"nowrap"}}>{blocos.length} blocos</div>
       </div>
 
+      <div style={{...css.card,marginBottom:12}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.muted,marginBottom:8}}>Alongamento / Mobilidade</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+          {[{k:"alongamento",l:"Alongamento"},{k:"mobilidade",l:"Mobilidade"}].map(op=>{
+            const ativo=!!form[op.k+"Ativo"+l];
+            return(
+              <button key={op.k} onClick={()=>u(op.k+"Ativo"+l, !ativo)}
+                style={{...css.btnC,padding:"7px 11px",fontSize:12,
+                  background:ativo?cor+"25":undefined,
+                  borderColor:ativo?cor:undefined,
+                  color:ativo?cor:undefined}}>
+                {ativo?"✓ ":"+ "}{op.l}
+              </button>
+            );
+          })}
+        </div>
+        {form["alongamentoAtivo"+l]&&(
+          <input style={{...css.input,marginBottom:8}} placeholder="Observação sobre o alongamento (ex: 5 min, foco em posterior de coxa...)"
+            value={form["alongamentoObs"+l]||""} onChange={e=>u("alongamentoObs"+l,e.target.value)}/>
+        )}
+        {form["mobilidadeAtivo"+l]&&(
+          <input style={css.input} placeholder="Observação sobre a mobilidade (ex: mobilidade de ombro e quadril...)"
+            value={form["mobilidadeObs"+l]||""} onChange={e=>u("mobilidadeObs"+l,e.target.value)}/>
+        )}
+      </div>
+
       {blocos.map((bloco,bi)=>{
         // Número sequencial só entre blocos de exercício (ignora cardios)
         const numBloco = blocos.slice(0,bi+1).filter(b=>b.tipo!=="cardio").length;
@@ -7792,6 +7818,22 @@ function TreinoAlunoView({aluno, treinoInicial}){
           {nome&&<div style={{fontSize:13,color:"#c2cdd8",flex:1}}>{nome}</div>}
           <div style={{fontSize:12,color:cor,fontWeight:600}}>{blocos.length} blocos</div>
         </div>
+        {(aluno["alongamentoAtivo"+treinoAberto]||aluno["mobilidadeAtivo"+treinoAberto])&&(
+          <div style={{...css.card,marginBottom:12,padding:"10px 14px",display:"grid",gap:8}}>
+            {aluno["alongamentoAtivo"+treinoAberto]&&(
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:2}}>Alongamento</div>
+                <div style={{fontSize:13,color:C.text,fontWeight:600}}>{aluno["alongamentoObs"+treinoAberto]||"Sem observação."}</div>
+              </div>
+            )}
+            {aluno["mobilidadeAtivo"+treinoAberto]&&(
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:2}}>Mobilidade</div>
+                <div style={{fontSize:13,color:C.text,fontWeight:600}}>{aluno["mobilidadeObs"+treinoAberto]||"Sem observação."}</div>
+              </div>
+            )}
+          </div>
+        )}
         {blocos.length===0
           ?<div style={{textAlign:"center",color:C.muted,padding:"28px 0",fontSize:13}}>Nenhum exercício prescrito.</div>
           :blocos.map((bloco,bi)=>{
@@ -8003,6 +8045,22 @@ function TreinoView({aluno}){
               {aluno["treino"+l]&&<div style={{fontSize:13,color:"#c2cdd8",flex:1}}>{aluno["treino"+l]}</div>}
               <div style={{fontSize:12,color:cor,fontWeight:600}}>{blocos.length} blocos</div>
             </div>
+            {(aluno["alongamentoAtivo"+l]||aluno["mobilidadeAtivo"+l])&&(
+              <div style={{...css.card,marginBottom:12,padding:"10px 14px",display:"grid",gap:8}}>
+                {aluno["alongamentoAtivo"+l]&&(
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:2}}>Alongamento</div>
+                    <div style={{fontSize:13,color:C.text,fontWeight:600}}>{aluno["alongamentoObs"+l]||"Sem observação."}</div>
+                  </div>
+                )}
+                {aluno["mobilidadeAtivo"+l]&&(
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:2}}>Mobilidade</div>
+                    <div style={{fontSize:13,color:C.text,fontWeight:600}}>{aluno["mobilidadeObs"+l]||"Sem observação."}</div>
+                  </div>
+                )}
+              </div>
+            )}
             {blocos.length===0
               ?<div style={{textAlign:"center",color:C.muted,padding:"20px 0",fontSize:13}}>Nenhum exercício prescrito.</div>
               :blocos.map((bloco,bi)=>{
