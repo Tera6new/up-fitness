@@ -230,3 +230,101 @@ export function ouvirTodasOuvidorias(callback) {
     callback(todas);
   });
 }
+
+// ── PILATES ──────────────────────────────────────────────────────────────
+// Área completamente separada da musculação: coleções próprias no
+// Firestore, sem nenhum cruzamento de dados com profissionais/alunos da
+// musculação. Segue exatamente os mesmos padrões usados acima.
+//   profissionaisPilates/{id}  -> dados do profissional de Pilates (sem login)
+//   alunosPilates/{id}         -> dados de cada aluno de Pilates
+//   agendasPilates/{profId}    -> agenda de horários de cada profissional de Pilates
+//   pagamentosPilates/{profId} -> planilhas de pagamento por mês (Pilates)
+
+// ── Profissionais (Pilates) ─────────────────────────────────────────────
+export function ouvirProfissionaisPilates(callback) {
+  return onSnapshot(collection(db, "profissionaisPilates"), (snap) => {
+    const lista = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    callback(lista);
+  });
+}
+
+export async function criarProfissionalPilates(dados) {
+  const id = String(Date.now());
+  await setDoc(doc(db, "profissionaisPilates", id), { ...dados, id });
+  return id;
+}
+
+export async function salvarProfissionalPilates(id, dados) {
+  await setDoc(doc(db, "profissionaisPilates", String(id)), dados, { merge: true });
+}
+
+export async function excluirProfissionalPilates(id) {
+  await deleteDoc(doc(db, "profissionaisPilates", String(id)));
+}
+
+// ── Alunos (Pilates) ─────────────────────────────────────────────────────
+export function ouvirAlunosPilates(callback) {
+  return onSnapshot(collection(db, "alunosPilates"), (snap) => {
+    const lista = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    callback(lista);
+  });
+}
+
+export async function criarAlunoPilates(dados) {
+  const id = String(Date.now());
+  await setDoc(doc(db, "alunosPilates", id), { ...dados, id });
+  return id;
+}
+
+export async function salvarAlunoPilates(id, dados) {
+  await setDoc(doc(db, "alunosPilates", String(id)), dados, { merge: true });
+}
+
+export async function excluirAlunoPilates(id) {
+  await deleteDoc(doc(db, "alunosPilates", String(id)));
+}
+
+// ── Agendas (Pilates) ────────────────────────────────────────────────────
+// Ouve TODAS as agendas de Pilates de uma vez (mesmo motivo da musculação:
+// necessário para telas que comparam horários entre profissionais).
+// Retorna um objeto no formato { [profissionalId]: dadosDaAgenda }.
+export function ouvirTodasAgendasPilates(callback) {
+  return onSnapshot(collection(db, "agendasPilates"), (snap) => {
+    const todas = {};
+    snap.docs.forEach((d) => { todas[d.id] = d.data(); });
+    callback(todas);
+  });
+}
+
+export async function atualizarCelulaAgendaPilates(profissionalId, chave, valor) {
+  const ref = doc(db, "agendasPilates", profissionalId);
+  // valor null/undefined significa "célula vazia" -> remove o campo do documento
+  // em vez de gravar null (evita registros vazios acumulando no banco).
+  const valorFinal = valor === null || valor === undefined ? deleteField() : valor;
+  await setDoc(ref, { [chave]: valorFinal }, { merge: true });
+}
+
+export async function atualizarHorariosPorDiaPilates(profissionalId, dia, novaLista) {
+  const ref = doc(db, "agendasPilates", profissionalId);
+  const snap = await getDoc(ref);
+  const horariosPorDia = snap.exists() ? snap.data().horariosPorDia || {} : {};
+  horariosPorDia[dia] = novaLista;
+  await setDoc(ref, { horariosPorDia }, { merge: true });
+}
+
+// ── Pagamentos (Pilates) ─────────────────────────────────────────────────
+// Ouve TODOS os pagamentos de Pilates de uma vez (necessário para o
+// Consolidado Geral, que soma os valores de todos os profissionais).
+// Retorna um objeto no formato { [profissionalId]: dadosDoPagamento }.
+export function ouvirTodosPagamentosPilates(callback) {
+  return onSnapshot(collection(db, "pagamentosPilates"), (snap) => {
+    const todos = {};
+    snap.docs.forEach((d) => { todos[d.id] = d.data(); });
+    callback(todos);
+  });
+}
+
+export async function atualizarMesPagamentoPilates(profissionalId, mes, linhas) {
+  const ref = doc(db, "pagamentosPilates", profissionalId);
+  await setDoc(ref, { [mes]: linhas }, { merge: true });
+}

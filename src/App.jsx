@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { fazerLogin, observarUsuario, fazerLogout, criarConta, entrarAnonimo } from "./services/authService";
-import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia, salvarAgendaCompleta, ouvirTodosPagamentos, atualizarMesPagamento, salvarPagamentosCompleto, ouvirOuvidoria, adicionarMensagemOuvidoria, ouvirTodasOuvidorias, criarConvite, buscarConvite, marcarConvitePreenchido } from "./services/dataService";
+import { buscarProfissional, ouvirProfissionais, ouvirAlunos, salvarProfissional, salvarAluno, criarAluno, excluirAluno, excluirProfissional as excluirProfissionalDoFirestore, ouvirTodasAgendas, atualizarCelulaAgenda, atualizarHorariosPorDia, salvarAgendaCompleta, ouvirTodosPagamentos, atualizarMesPagamento, salvarPagamentosCompleto, ouvirOuvidoria, adicionarMensagemOuvidoria, ouvirTodasOuvidorias, criarConvite, buscarConvite, marcarConvitePreenchido, ouvirProfissionaisPilates, criarProfissionalPilates, salvarProfissionalPilates, excluirProfissionalPilates, ouvirAlunosPilates, criarAlunoPilates, salvarAlunoPilates, excluirAlunoPilates, ouvirTodasAgendasPilates, atualizarCelulaAgendaPilates, atualizarHorariosPorDiaPilates, ouvirTodosPagamentosPilates, atualizarMesPagamentoPilates } from "./services/dataService";
 
 // ── DADOS ────────────────────────────────────────────────────────────────────
 const APP_VERSION = "v2.1";
@@ -3082,7 +3082,7 @@ function PlanilhaMesView({prof, mesAtivo, linhas, alunos, onUpdateLinhas, onVolt
 }
 
 // Navegacao em 3 niveis: Ano -> Mes -> Planilha
-function PagamentosView({prof, pagamentosDoProf, alunos, onUpdateMes, onVoltar, podeEditar}){
+function PagamentosView({prof, pagamentosDoProf, alunos, onUpdateMes, onVoltar, podeEditar, mesclarFn}){
   // Por padrao ja abre a planilha do mes/ano atual. A navegacao por Ano/Mes
   // funciona como um mecanismo de busca, acessivel a partir da planilha.
   const [mesAtivo,setMesAtivo] = useState(chaveMesAtual());
@@ -3096,7 +3096,10 @@ function PagamentosView({prof, pagamentosDoProf, alunos, onUpdateMes, onVoltar, 
   const anosDisponiveis = Object.keys(porAno).sort().reverse();
 
   const linhasSalvas = pagamentosDoProf?.[mesAtivo];
-  const linhas = mesclarLinhasComCarteira(linhasSalvas, prof, alunos);
+  // mesclarFn permite reaproveitar esta tela fora da musculação (ex: Pilates,
+  // que não tem o conceito de guarda compartilhada/vínculo proporcional).
+  // Por padrão usa a mesma lógica que sempre foi usada aqui.
+  const linhas = (mesclarFn||mesclarLinhasComCarteira)(linhasSalvas, prof, alunos);
 
   // Salva automaticamente no Firestore sempre que a mesclagem gerar uma
   // diferença real em relação ao que ja estava salvo — seja por linhas novas
@@ -5437,6 +5440,9 @@ export default function App(){
       onLoginAluno={a=>setCurrentUser({...a, role:"aluno"})}
     />
   );
+
+  // ── ÁREA PILATES (separada da musculação — dados 100% isolados) ──
+  if(currentUser?.modoPilates) return <PilatesView onSair={sair}/>;
 
   // ── TELA ALUNO (somente leitura) ─────────────────────────────────────────
   if(currentUser?.role==="aluno"){
@@ -8142,6 +8148,313 @@ function TreinoView({aluno}){
 }
 
 // ── FORMULÁRIO ADICIONAR PROFISSIONAL ────────────────────────────────────────
+// ── ÁREA PILATES ──────────────────────────────────────────────────────────
+// Completamente separada da musculação: usa suas próprias coleções no
+// Firestore (profissionaisPilates / alunosPilates), suas próprias funções
+// de dataService, e nenhum dado é compartilhado ou cruzado com `alunos` /
+// `profissionais` da musculação. Só o Admin acessa (ver checagem em
+// LoginScreen). Profissionais e alunos de Pilates não fazem login.
+// Versão simplificada de mesclarLinhasComCarteira para o Pilates: aqui não
+// existe o conceito de guarda compartilhada/vínculo proporcional — cada
+// aluno tem um único profissional e um valor de mensalidade direto.
+function mesclarLinhasComCarteiraPilates(linhasSalvas, prof, alunos){
+  const base = linhasSalvas || [];
+  const meusAlunos = alunos.filter(a=>a.profissionalId===prof.id);
+  const porAlunoId = {};
+  meusAlunos.forEach(a=>{ porAlunoId[a.id]=a; });
+
+  const linhasAtualizadas = base.map(l=>{
+    if(!l.alunoId || l.editadoManualmente) return l;
+    const a = porAlunoId[l.alunoId];
+    if(!a) return l;
+    return { ...l, nome: a.nome, plano: l.plano||"", valor: a.valorMensalidade||0 };
+  });
+
+  const idsJaNaPlanilha = new Set(linhasAtualizadas.filter(l=>l.alunoId).map(l=>l.alunoId));
+  const novasLinhas = meusAlunos
+    .filter(a=>a.ativo!==false)
+    .filter(a=>!idsJaNaPlanilha.has(a.id))
+    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'))
+    .map(a=>({
+      id: `aluno_${a.id}`,
+      alunoId: a.id,
+      nome: a.nome,
+      plano: "",
+      valor: a.valorMensalidade||0,
+      pago: false,
+      editadoManualmente: false,
+    }));
+  return [...linhasAtualizadas, ...novasLinhas];
+}
+
+function PilatesView({onSair}){
+  const [profissionais,setProfissionais]=useState([]);
+  const [alunos,setAlunos]=useState([]);
+  const [agendas,setAgendas]=useState({});      // {profId: agendaDoc}
+  const [pagamentos,setPagamentos]=useState({}); // {profId: {mes: linhas[]}}
+  const [carregando,setCarregando]=useState(true);
+  const [view,setView]=useState("lista"); // lista | editProf | detalheProf | editAluno | agenda | pagamentos | pagamentosConsolidado
+  const [profSelecionado,setProfSelecionado]=useState(null);
+  const [profEditando,setProfEditando]=useState(null);
+  const [alunoEditando,setAlunoEditando]=useState(null);
+
+  useEffect(()=>{
+    const unsubProf = ouvirProfissionaisPilates(lista=>{ setProfissionais(lista); setCarregando(false); });
+    const unsubAlunos = ouvirAlunosPilates(lista=>setAlunos(lista));
+    const unsubAgendas = ouvirTodasAgendasPilates(dados=>setAgendas(dados||{}));
+    const unsubPagamentos = ouvirTodosPagamentosPilates(dados=>setPagamentos(dados||{}));
+    return ()=>{ unsubProf(); unsubAlunos(); unsubAgendas(); unsubPagamentos(); };
+  },[]);
+
+  const Header=({titulo,onVoltar})=>(
+    <header style={css.hdr}>
+      {onVoltar
+        ? <button style={css.btnB} onClick={onVoltar}>← Voltar</button>
+        : <div style={{display:'flex',alignItems:'center',gap:8}}><LogoUP size={32}/><div style={{fontWeight:800,fontSize:16,color:'#a78bfa'}}>Pilates</div></div>
+      }
+      <div style={{fontWeight:700,fontSize:15}}>{titulo}</div>
+      {onVoltar ? <div style={{width:70}}/> : <button style={css.btnB} onClick={onSair}>Sair</button>}
+    </header>
+  );
+
+  // ── TELA: Agenda de horários (mesmo componente do personal trainer) ──
+  if(view==="agenda"&&profSelecionado){
+    return(
+      <AgendaGridView
+        prof={profSelecionado}
+        agenda={agendas[profSelecionado.id]||{}}
+        alunos={alunos}
+        podeEditarObs={true}
+        onAbrirAluno={(aluno)=>{ setAlunoEditando({...aluno}); setView("editAluno"); }}
+        onVoltar={()=>setView("detalheProf")}
+        onUpdateCelula={async(key,val)=>{
+          try{ await atualizarCelulaAgendaPilates(profSelecionado.id, key, (!val.status && !val.nome) ? null : val); }
+          catch(e){ console.error("Erro ao atualizar celula da agenda (Pilates):", e); }
+        }}
+        onUpdateHorariosPorDia={async(dia, novaLista)=>{
+          try{ await atualizarHorariosPorDiaPilates(profSelecionado.id, dia, novaLista); }
+          catch(e){ console.error("Erro ao atualizar horarios da agenda (Pilates):", e); }
+        }}
+      />
+    );
+  }
+
+  // ── TELA: Pagamentos (mesmo componente do personal trainer) ──
+  if(view==="pagamentos"&&profSelecionado){
+    return(
+      <PagamentosView
+        prof={profSelecionado}
+        pagamentosDoProf={pagamentos[profSelecionado.id]||{}}
+        alunos={alunos}
+        podeEditar={true}
+        mesclarFn={mesclarLinhasComCarteiraPilates}
+        onVoltar={()=>setView("detalheProf")}
+        onUpdateMes={async(mes, linhas)=>{
+          try{ await atualizarMesPagamentoPilates(profSelecionado.id, mes, linhas); }
+          catch(e){ console.error("Erro ao atualizar pagamentos (Pilates):", e); }
+        }}
+      />
+    );
+  }
+
+  // ── TELA: Consolidado geral (todos os profissionais de Pilates) ──
+  if(view==="pagamentosConsolidado") return(
+    <PagamentosConsolidadoView profissionais={profissionais} pagamentos={pagamentos} onVoltar={()=>setView("lista")}/>
+  );
+
+  // ── TELA: Lista de profissionais ──
+  if(view==="lista") return(
+    <div style={css.app}><GF/>
+      <Header/>
+      <div style={css.wrap}>
+        <div style={{marginBottom:20}}>
+          <div style={{fontWeight:700,fontSize:18,marginBottom:4,color:"#a78bfa"}}>Profissionais de Pilates</div>
+          <div style={{fontSize:13,color:C.muted}}>Selecione um profissional para ver alunos, agenda e pagamentos</div>
+        </div>
+
+        <div style={{...css.row("1fr 1fr 1fr"),marginBottom:16}}>
+          {[
+            {l:"Total alunos",v:alunos.length,c:"#a78bfa"},
+            {l:"Profissionais",v:profissionais.length,c:"#6366f1"},
+            {l:"Ativos",v:alunos.filter(a=>a.ativo).length,c:C.green},
+          ].map(s=>(
+            <div key={s.l} style={css.stat(s.c)}>
+              <div style={{fontSize:24,fontWeight:800,color:s.c}}>{s.v}</div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:600}}>{s.l}</div>
+            </div>
+          ))}
+        </div>
+
+        <button onClick={()=>setView("pagamentosConsolidado")}
+          style={{...css.card,width:"100%",textAlign:"left",cursor:"pointer",marginBottom:16,
+            background:"#0a1a10",border:"1px solid #34d39940",display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:20}}>💰</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:14,color:"#34d399"}}>Consolidado Geral</div>
+            <div style={{fontSize:12,color:C.muted}}>Pagamentos de todos os profissionais de Pilates</div>
+          </div>
+        </button>
+
+        {carregando
+          ? <div style={{textAlign:"center",color:C.muted,padding:40}}>Carregando...</div>
+          : <div style={{display:"grid",gap:10}}>
+              {[...profissionais].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(p=>{
+                const meus=alunos.filter(a=>a.profissionalId===p.id);
+                const ativos=meus.filter(a=>a.ativo).length;
+                return(
+                  <div key={p.id} onClick={()=>{setProfSelecionado(p);setView("detalheProf");}}
+                    style={{...css.card,cursor:"pointer",padding:"14px 16px",display:"flex",alignItems:"center",gap:14}}>
+                    <Avatar nome={p.nome} foto={null} size={44}/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:15}}>{p.nome}</div>
+                      <div style={{display:"flex",gap:10,marginTop:2}}>
+                        <span style={{fontSize:12,color:"#a78bfa",fontWeight:700}}>{meus.length} alunos</span>
+                        <span style={{fontSize:12,color:C.green}}>{ativos} ativos</span>
+                      </div>
+                    </div>
+                    <button onClick={e=>{e.stopPropagation();setProfEditando({...p});setView("editProf");}}
+                      style={{background:"#241408",border:"1px solid #a78bfa50",color:"#a78bfa",borderRadius:7,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+                      ✎ Editar
+                    </button>
+                    <span style={{color:"#3d2010",fontSize:20}}>›</span>
+                  </div>
+                );
+              })}
+              {profissionais.length===0&&<div style={{textAlign:"center",color:C.muted,padding:30,fontSize:13}}>Nenhum profissional de Pilates cadastrado ainda.</div>}
+            </div>
+        }
+
+        <button onClick={()=>{setProfEditando({nome:"",telefone:"",ativo:true});setView("editProf");}}
+          style={{...css.btnC,width:"100%",marginTop:14,padding:"12px",fontSize:13,borderColor:"#a78bfa50",color:"#a78bfa"}}>
+          + Adicionar profissional
+        </button>
+      </div>
+    </div>
+  );
+
+  // ── TELA: Adicionar/Editar profissional ──
+  if(view==="editProf") return(
+    <div style={css.app}><GF/>
+      <Header titulo={profEditando?.id?"Editar Profissional":"Novo Profissional"} onVoltar={()=>setView("lista")}/>
+      <div style={css.wrap}>
+        <Inp label="Nome" value={profEditando?.nome||""} onChange={v=>setProfEditando({...profEditando,nome:v})}/>
+        <Inp label="Telefone" value={profEditando?.telefone||""} onChange={v=>setProfEditando({...profEditando,telefone:v})}/>
+        <button onClick={async()=>{
+            if(!profEditando.nome?.trim()){ alert("Informe o nome."); return; }
+            if(profEditando.id){ await salvarProfissionalPilates(profEditando.id, profEditando); }
+            else{ await criarProfissionalPilates(profEditando); }
+            setView("lista");
+          }}
+          style={{...css.btnA,width:"100%",marginTop:16,padding:"13px"}}>
+          Salvar
+        </button>
+        {profEditando?.id&&(
+          <button onClick={async()=>{
+              if(!confirm("Excluir este profissional? Os alunos vinculados a ele não serão excluídos, mas ficarão sem profissional atribuído.")) return;
+              await excluirProfissionalPilates(profEditando.id);
+              setView("lista");
+            }}
+            style={{...css.btnB,width:"100%",marginTop:10,padding:"12px",color:"#f87171",borderColor:"#f8717150"}}>
+            Excluir profissional
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  // ── TELA: Adicionar/Editar aluno ──
+  if(view==="editAluno") return(
+    <div style={css.app}><GF/>
+      <Header titulo={alunoEditando?.id?"Editar Aluno":"Novo Aluno"} onVoltar={()=>setView("detalheProf")}/>
+      <div style={css.wrap}>
+        <Inp label="Nome" value={alunoEditando?.nome||""} onChange={v=>setAlunoEditando({...alunoEditando,nome:v})}/>
+        <Inp label="Telefone" value={alunoEditando?.telefone||""} onChange={v=>setAlunoEditando({...alunoEditando,telefone:v})}/>
+        <Inp label="Valor da mensalidade" type="number" placeholder="Ex: 250" value={alunoEditando?.valorMensalidade||""} onChange={v=>setAlunoEditando({...alunoEditando,valorMensalidade:v})}/>
+        <div style={{fontSize:11,color:C.muted,marginTop:6}}>O dia/horário da aula é definido na Agenda do profissional, não aqui.</div>
+        <div style={{marginTop:10}}>
+          <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:4}}>Lesões</div>
+          <textarea value={alunoEditando?.lesoes||""} onChange={e=>setAlunoEditando({...alunoEditando,lesoes:e.target.value})}
+            placeholder="Ex: hérnia de disco L4-L5..." style={{...css.input,width:"100%",minHeight:60,resize:"vertical",fontFamily:"Inter,sans-serif"}}/>
+        </div>
+        <div style={{marginTop:10}}>
+          <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:4}}>Restrições</div>
+          <textarea value={alunoEditando?.restricoes||""} onChange={e=>setAlunoEditando({...alunoEditando,restricoes:e.target.value})}
+            placeholder="Ex: evitar flexão lombar profunda..." style={{...css.input,width:"100%",minHeight:60,resize:"vertical",fontFamily:"Inter,sans-serif"}}/>
+        </div>
+        <label style={{display:"flex",alignItems:"center",gap:8,marginTop:14,cursor:"pointer"}}>
+          <input type="checkbox" checked={alunoEditando?.ativo!==false} onChange={e=>setAlunoEditando({...alunoEditando,ativo:e.target.checked})}/>
+          <span style={{fontSize:13}}>Aluno ativo</span>
+        </label>
+        <button onClick={async()=>{
+            if(!alunoEditando.nome?.trim()){ alert("Informe o nome."); return; }
+            const dados={...alunoEditando, profissionalId:profSelecionado.id};
+            if(alunoEditando.id){ await salvarAlunoPilates(alunoEditando.id, dados); }
+            else{ await criarAlunoPilates(dados); }
+            setView("detalheProf");
+          }}
+          style={{...css.btnA,width:"100%",marginTop:16,padding:"13px"}}>
+          Salvar
+        </button>
+        {alunoEditando?.id&&(
+          <button onClick={async()=>{
+              if(!confirm(`Excluir ${alunoEditando.nome}? Essa ação não pode ser desfeita.`)) return;
+              await excluirAlunoPilates(alunoEditando.id);
+              setView("detalheProf");
+            }}
+            style={{...css.btnB,width:"100%",marginTop:10,padding:"12px",color:"#f87171",borderColor:"#f8717150"}}>
+            Excluir aluno
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  // ── TELA: Detalhe do profissional (alunos + atalhos p/ Agenda e Pagamentos) ──
+  if(view==="detalheProf"){
+    const p=profissionais.find(x=>x.id===profSelecionado?.id)||profSelecionado;
+    const meus=alunos.filter(a=>a.profissionalId===p.id);
+    return(
+      <div style={css.app}><GF/>
+        <Header titulo={p.nome} onVoltar={()=>setView("lista")}/>
+        <div style={css.wrap}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:18}}>
+            <button onClick={()=>setView("agenda")}
+              style={{...css.card,cursor:"pointer",textAlign:"center",padding:"16px 10px",background:"#0a1a10",border:"1px solid #34d39940"}}>
+              <div style={{fontSize:22,marginBottom:4}}>📅</div>
+              <div style={{fontWeight:700,fontSize:13,color:"#34d399"}}>Agenda</div>
+            </button>
+            <button onClick={()=>setView("pagamentos")}
+              style={{...css.card,cursor:"pointer",textAlign:"center",padding:"16px 10px",background:"#1a0a1a",border:"1px solid #a78bfa40"}}>
+              <div style={{fontSize:22,marginBottom:4}}>💰</div>
+              <div style={{fontWeight:700,fontSize:13,color:"#a78bfa"}}>Pagamentos</div>
+            </button>
+          </div>
+
+          <div style={{fontSize:12,fontWeight:700,color:C.muted,marginBottom:10,textTransform:"uppercase",letterSpacing:.5}}>Alunos</div>
+          <div style={{display:"grid",gap:10,marginBottom:14}}>
+            {[...meus].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(a=>(
+              <div key={a.id} onClick={()=>{setAlunoEditando({...a});setView("editAluno");}}
+                style={{...css.card,cursor:"pointer",padding:"12px 14px",display:"flex",alignItems:"center",gap:12}}>
+                <Avatar nome={a.nome} foto={null} size={40}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:14}}>{a.nome}</div>
+                  {!a.ativo&&<div style={{fontSize:12,color:"#f87171",marginTop:1}}>Inativo</div>}
+                </div>
+                <span style={{color:"#3d2010",fontSize:18}}>›</span>
+              </div>
+            ))}
+            {meus.length===0&&<div style={{textAlign:"center",color:C.muted,padding:30,fontSize:13}}>Nenhum aluno cadastrado ainda.</div>}
+          </div>
+          <button onClick={()=>{setAlunoEditando({nome:"",ativo:true});setView("editAluno");}}
+            style={{...css.btnC,width:"100%",padding:"12px",fontSize:13,borderColor:"#a78bfa50",color:"#a78bfa"}}>
+            + Adicionar aluno
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
+
 function AddProfForm({onSave,onCancel,forcarAdmin}){
   const [nome,setNome]=useState("");
   const [esp,setEsp]=useState("");
@@ -8393,6 +8706,19 @@ function LoginScreen({profissionais,alunos,onLoginProf,onLoginAluno}){
               </div>
               <span style={{color:"#34d399",fontSize:22,marginLeft:"auto"}}>›</span>
             </button>
+
+            <button onClick={()=>setTela("pilatesLogin")}
+              style={{background:"linear-gradient(135deg,#1a0a1a,#241028)",border:"1px solid #a78bfa50",
+                borderRadius:16,padding:"22px 20px",cursor:"pointer",textAlign:"left",width:"100%",
+                display:"flex",alignItems:"center",gap:16}}>
+              <div style={{width:48,height:48,borderRadius:12,background:"#a78bfa20",border:"1px solid #a78bfa40",
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>🧘</div>
+              <div>
+                <div style={{fontWeight:800,fontSize:17,color:C.text,marginBottom:3}}>Pilates</div>
+                <div style={{fontSize:12,color:C.muted}}>Área exclusiva do administrador</div>
+              </div>
+              <span style={{color:"#a78bfa",fontSize:22,marginLeft:"auto"}}>›</span>
+            </button>
           </div>
 
           {/* Primeiro acesso: só aparece se ainda não existe nenhum profissional
@@ -8436,6 +8762,20 @@ function LoginScreen({profissionais,alunos,onLoginProf,onLoginAluno}){
   // ── TELA PROFISSIONAL (login real com email/senha) ──
   if(tela==="prof") return(
     <LoginProfissionalForm onVoltar={()=>setTela("home")} onLoginProf={onLoginProf}/>
+  );
+
+  // ── TELA PILATES (login real, mas só libera acesso para Admin) ──
+  if(tela==="pilatesLogin") return(
+    <LoginProfissionalForm onVoltar={()=>setTela("home")}
+      onLoginProf={async (p)=>{
+        if(p.role!=="admin"){
+          await fazerLogout();
+          alert("O Pilates é uma área exclusiva do administrador.");
+          setTela("home");
+          return;
+        }
+        onLoginProf({...p, modoPilates:true});
+      }}/>
   );
 
   // ── TELA VERIFICAÇÃO DE IDENTIDADE (data de nascimento) ──
