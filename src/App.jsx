@@ -4887,6 +4887,11 @@ export default function App(){
   }, [tokenConvite]);
 
   const [currentUser,setCurrentUser]=useState(null);
+  // Acesso ao Pilates a partir do painel do Admin já logado — não exige um
+  // login separado. Só é exposto na UI para currentUser.role==="admin"
+  // (ver botão no header da tela Profissionais), e a checagem de role é
+  // repetida na hora de renderizar como camada extra de segurança.
+  const [pilatesAtivo,setPilatesAtivo]=useState(false);
   const [authCarregando,setAuthCarregando]=useState(true);
   // Indica se existe QUALQUER sessão do Firebase Auth ativa — incluindo a
   // sessão anônima criada automaticamente quando ninguém está logado. É
@@ -5442,7 +5447,7 @@ export default function App(){
   );
 
   // ── ÁREA PILATES (separada da musculação — dados 100% isolados) ──
-  if(currentUser?.modoPilates) return <PilatesView onSair={sair}/>;
+  if(pilatesAtivo && currentUser?.role==="admin") return <PilatesView onSair={()=>setPilatesAtivo(false)}/>;
 
   // ── TELA ALUNO (somente leitura) ─────────────────────────────────────────
   if(currentUser?.role==="aluno"){
@@ -5811,6 +5816,15 @@ export default function App(){
                   {totalMsgs>9?"9+":totalMsgs}
                 </span>
               )}
+            </button>
+          )}
+          {/* Botão Pilates — visível apenas para Admin, entra sem precisar logar de novo */}
+          {currentUser?.role==="admin"&&(
+            <button onClick={()=>setPilatesAtivo(true)}
+              style={{background:"#1a0a1a",border:"1px solid #a78bfa40",
+                borderRadius:9,padding:"7px 12px",cursor:"pointer",fontFamily:"Inter,sans-serif",
+                display:"flex",alignItems:"center",gap:6,color:"#a78bfa",fontWeight:600,fontSize:12}}>
+              🧘 Pilates
             </button>
           )}
           <button style={css.btnB} onClick={sair}>Sair</button>
@@ -8193,7 +8207,7 @@ function PilatesView({onSair}){
   const [agendas,setAgendas]=useState({});      // {profId: agendaDoc}
   const [pagamentos,setPagamentos]=useState({}); // {profId: {mes: linhas[]}}
   const [carregando,setCarregando]=useState(true);
-  const [view,setView]=useState("lista"); // lista | editProf | detalheProf | editAluno | agenda | pagamentos | pagamentosConsolidado
+  const [view,setView]=useState("lista"); // lista | editProf | detalheProf | editAluno | agenda | agendaBusca | pagamentos | pagamentosConsolidado
   const [profSelecionado,setProfSelecionado]=useState(null);
   const [profEditando,setProfEditando]=useState(null);
   const [alunoEditando,setAlunoEditando]=useState(null);
@@ -8216,6 +8230,18 @@ function PilatesView({onSair}){
       {onVoltar ? <div style={{width:70}}/> : <button style={css.btnB} onClick={onSair}>Sair</button>}
     </header>
   );
+
+  // ── TELA: Buscar Vagas (mesmo componente do personal trainer) ──
+  if(view==="agendaBusca"){
+    return(
+      <AgendaBuscaView
+        profissionais={profissionais}
+        agendas={agendas}
+        onVoltar={()=>setView("lista")}
+        onAbrirAgenda={(prof)=>{ setProfSelecionado(prof); setView("agenda"); }}
+      />
+    );
+  }
 
   // ── TELA: Agenda de horários (mesmo componente do personal trainer) ──
   if(view==="agenda"&&profSelecionado){
@@ -8286,12 +8312,22 @@ function PilatesView({onSair}){
         </div>
 
         <button onClick={()=>setView("pagamentosConsolidado")}
-          style={{...css.card,width:"100%",textAlign:"left",cursor:"pointer",marginBottom:16,
+          style={{...css.card,width:"100%",textAlign:"left",cursor:"pointer",marginBottom:10,
             background:"#0a1a10",border:"1px solid #34d39940",display:"flex",alignItems:"center",gap:10}}>
           <span style={{fontSize:20}}>💰</span>
           <div>
             <div style={{fontWeight:700,fontSize:14,color:"#34d399"}}>Consolidado Geral</div>
             <div style={{fontSize:12,color:C.muted}}>Pagamentos de todos os profissionais de Pilates</div>
+          </div>
+        </button>
+
+        <button onClick={()=>setView("agendaBusca")}
+          style={{...css.card,width:"100%",textAlign:"left",cursor:"pointer",marginBottom:16,
+            background:"#1a0a1a",border:"1px solid #a78bfa40",display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:20}}>🔍</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:14,color:"#a78bfa"}}>Buscar Vagas</div>
+            <div style={{fontSize:12,color:C.muted}}>Encontre horários livres por dia e profissional</div>
           </div>
         </button>
 
@@ -8706,19 +8742,6 @@ function LoginScreen({profissionais,alunos,onLoginProf,onLoginAluno}){
               </div>
               <span style={{color:"#34d399",fontSize:22,marginLeft:"auto"}}>›</span>
             </button>
-
-            <button onClick={()=>setTela("pilatesLogin")}
-              style={{background:"linear-gradient(135deg,#1a0a1a,#241028)",border:"1px solid #a78bfa50",
-                borderRadius:16,padding:"22px 20px",cursor:"pointer",textAlign:"left",width:"100%",
-                display:"flex",alignItems:"center",gap:16}}>
-              <div style={{width:48,height:48,borderRadius:12,background:"#a78bfa20",border:"1px solid #a78bfa40",
-                display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>🧘</div>
-              <div>
-                <div style={{fontWeight:800,fontSize:17,color:C.text,marginBottom:3}}>Pilates</div>
-                <div style={{fontSize:12,color:C.muted}}>Área exclusiva do administrador</div>
-              </div>
-              <span style={{color:"#a78bfa",fontSize:22,marginLeft:"auto"}}>›</span>
-            </button>
           </div>
 
           {/* Primeiro acesso: só aparece se ainda não existe nenhum profissional
@@ -8762,20 +8785,6 @@ function LoginScreen({profissionais,alunos,onLoginProf,onLoginAluno}){
   // ── TELA PROFISSIONAL (login real com email/senha) ──
   if(tela==="prof") return(
     <LoginProfissionalForm onVoltar={()=>setTela("home")} onLoginProf={onLoginProf}/>
-  );
-
-  // ── TELA PILATES (login real, mas só libera acesso para Admin) ──
-  if(tela==="pilatesLogin") return(
-    <LoginProfissionalForm onVoltar={()=>setTela("home")}
-      onLoginProf={async (p)=>{
-        if(p.role!=="admin"){
-          await fazerLogout();
-          alert("O Pilates é uma área exclusiva do administrador.");
-          setTela("home");
-          return;
-        }
-        onLoginProf({...p, modoPilates:true});
-      }}/>
   );
 
   // ── TELA VERIFICAÇÃO DE IDENTIDADE (data de nascimento) ──
