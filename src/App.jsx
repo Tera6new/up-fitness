@@ -7362,6 +7362,7 @@ const CARDIO_TIPOS = ["Esteira","Bicicleta ergometrica","Eliptico","Escada","Rem
 const CARDIO_INTENS = ["Leve (aquecimento)","Moderado","Forte","Máximo (sprint)","Variado (intervalado)"];
 
 function novoBlocoCardio(){ return {id:Date.now()+Math.random(), tipo:"cardio", exercicio:"Esteira", tempo:"", intensidade:"Moderado", obs:""}; }
+function novoBlocoAlongamento(){ return {id:Date.now()+Math.random(), tipo:"alongamento", alongamentoAtivo:false, alongamentoObs:"", mobilidadeAtivo:false, mobilidadeObs:""}; }
 
 function AbaExercicios({l,form,u}){
   const cor=COR_LETRA[l];
@@ -7372,6 +7373,7 @@ function AbaExercicios({l,form,u}){
 
   const addBloco=()=>setBlocos([...blocos,novoBloco()]);
   const addBlocoCardio=()=>setBlocos([...blocos,novoBlocoCardio()]);
+  const addBlocoAlongamento=()=>setBlocos([...blocos,novoBlocoAlongamento()]);
   const rmBloco=id=>setBlocos(blocos.filter(b=>b.id!==id));
   const moveUp=i=>{ if(i===0)return; const b=[...blocos]; [b[i-1],b[i]]=[b[i],b[i-1]]; setBlocos(b); };
   const moveDown=i=>{ if(i===blocos.length-1)return; const b=[...blocos]; [b[i],b[i+1]]=[b[i+1],b[i]]; setBlocos(b); };
@@ -7384,6 +7386,7 @@ function AbaExercicios({l,form,u}){
   // addCardioNoBloco: converte em exercício de tipo cardio dentro do bloco existente
   const addCardioNoBloco=(blocoId,cardioData)=>setBlocos(blocos.map(b=>b.id===blocoId&&(b.exercicios||[]).length<3&&b.tipo!=="cardio"?{...b,exercicios:[...(b.exercicios||[]),{...novoEx(),nome:cardioData.exercicio,tipo:"cardio",series:cardioData.series||"",tempo:cardioData.tempo,intensidade:cardioData.intensidade,obs:cardioData.obs,reps:"",carga:""}]}:b));
   const updCardio=(id,k,v)=>setBlocos(blocos.map(b=>b.id===id?{...b,[k]:v}:b));
+  const updAlongamento=(id,k,v)=>setBlocos(blocos.map(b=>b.id===id?{...b,[k]:v}:b));
 
   const onDragStart=i=>setDragIdx(i);
   const onDragEnter=i=>setDragOver(i);
@@ -7405,35 +7408,9 @@ function AbaExercicios({l,form,u}){
         <div style={{fontSize:12,color:cor,fontWeight:600,whiteSpace:"nowrap"}}>{blocos.length} blocos</div>
       </div>
 
-      <div style={{...css.card,marginBottom:12}}>
-        <div style={{fontSize:12,fontWeight:700,color:C.muted,marginBottom:8}}>Alongamento / Mobilidade</div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
-          {[{k:"alongamento",l:"Alongamento"},{k:"mobilidade",l:"Mobilidade"}].map(op=>{
-            const ativo=!!form[op.k+"Ativo"+l];
-            return(
-              <button key={op.k} onClick={()=>u(op.k+"Ativo"+l, !ativo)}
-                style={{...css.btnC,padding:"7px 11px",fontSize:12,
-                  background:ativo?cor+"25":undefined,
-                  borderColor:ativo?cor:undefined,
-                  color:ativo?cor:undefined}}>
-                {ativo?"✓ ":"+ "}{op.l}
-              </button>
-            );
-          })}
-        </div>
-        {form["alongamentoAtivo"+l]&&(
-          <input style={{...css.input,marginBottom:8}} placeholder="Observação sobre o alongamento (ex: 5 min, foco em posterior de coxa...)"
-            value={form["alongamentoObs"+l]||""} onChange={e=>u("alongamentoObs"+l,e.target.value)}/>
-        )}
-        {form["mobilidadeAtivo"+l]&&(
-          <input style={css.input} placeholder="Observação sobre a mobilidade (ex: mobilidade de ombro e quadril...)"
-            value={form["mobilidadeObs"+l]||""} onChange={e=>u("mobilidadeObs"+l,e.target.value)}/>
-        )}
-      </div>
-
       {blocos.map((bloco,bi)=>{
-        // Número sequencial só entre blocos de exercício (ignora cardios)
-        const numBloco = blocos.slice(0,bi+1).filter(b=>b.tipo!=="cardio").length;
+        // Número sequencial só entre blocos de exercício (ignora cardios e alongamento/mobilidade)
+        const numBloco = blocos.slice(0,bi+1).filter(b=>b.tipo!=="cardio"&&b.tipo!=="alongamento").length;
         return(
         <div key={bloco.id}
           draggable
@@ -7449,6 +7426,11 @@ function AbaExercicios({l,form,u}){
                 onUpd={(k,v)=>updCardio(bloco.id,k,v)}
                 onRm={()=>rmBloco(bloco.id)}
                 onUp={()=>moveUp(bi)} onDown={()=>moveDown(bi)}/>
+            : bloco.tipo==="alongamento"
+            ? <BlocoAlongamento bloco={bloco} bi={bi} total={blocos.length}
+                onUpd={(k,v)=>updAlongamento(bloco.id,k,v)}
+                onRm={()=>rmBloco(bloco.id)}
+                onUp={()=>moveUp(bi)} onDown={()=>moveDown(bi)}/>
             : <BlocoEditor bloco={bloco} bi={bi} numBloco={numBloco} cor={cor} total={blocos.length}
                 onRmBloco={()=>rmBloco(bloco.id)}
                 onUpdEx={(exId,k,v)=>updEx(bloco.id,exId,k,v)}
@@ -7461,9 +7443,10 @@ function AbaExercicios({l,form,u}){
         );
       })}
 
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginTop:8}}>
         <button onClick={addBloco} style={{...css.btnC,padding:"12px",fontSize:13,textAlign:"center"}}>+ Novo bloco</button>
         <button onClick={addBlocoCardio} style={{...css.btnC,padding:"12px",fontSize:13,textAlign:"center",color:"#34d399",borderColor:"#34d39940"}}>+ Cardio</button>
+        <button onClick={addBlocoAlongamento} style={{...css.btnC,padding:"12px",fontSize:13,textAlign:"center",color:"#a78bfa",borderColor:"#a78bfa40"}}>+ Alongamento/Mobilidade</button>
       </div>
     </div>
   );
@@ -7500,6 +7483,45 @@ function BlocoCardio({bloco,bi,total,onUpd,onRm,onUp,onDown}){
         <Inp label="Tempo / Distancia" value={bloco.tempo} onChange={v=>onUpd("tempo",v)} placeholder="Ex: 3 min, 1 km"/>
         <Inp label="Observação" value={bloco.obs} onChange={v=>onUpd("obs",v)} placeholder="Ex: inclinação 2%"/>
       </div>
+    </div>
+  );
+}
+
+function BlocoAlongamento({bloco,bi,total,onUpd,onRm,onUp,onDown}){
+  return(
+    <div style={{...css.card,marginBottom:10,border:"1px solid #a78bfa40",background:"#1a0a1a"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <div style={{fontWeight:700,fontSize:13,color:"#a78bfa"}}>
+          🧘 Alongamento / Mobilidade
+        </div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <button onClick={onUp} disabled={bi===0} style={{...css.btnC,padding:"3px 8px",fontSize:13,opacity:bi===0?.3:1}}>↑</button>
+          <button onClick={onDown} disabled={bi===total-1} style={{...css.btnC,padding:"3px 8px",fontSize:13,opacity:bi===total-1?.3:1}}>↓</button>
+          <button onClick={onRm} style={{background:"#450a0a",color:"#fca5a5",border:"none",borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:11,fontFamily:"'Inter',sans-serif"}}>Remover</button>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+        {[{k:"alongamento",l:"Alongamento"},{k:"mobilidade",l:"Mobilidade"}].map(op=>{
+          const ativo=!!bloco[op.k+"Ativo"];
+          return(
+            <button key={op.k} onClick={()=>onUpd(op.k+"Ativo", !ativo)}
+              style={{...css.btnC,padding:"7px 11px",fontSize:12,
+                background:ativo?"#a78bfa25":undefined,
+                borderColor:ativo?"#a78bfa":undefined,
+                color:ativo?"#a78bfa":undefined}}>
+              {ativo?"✓ ":"+ "}{op.l}
+            </button>
+          );
+        })}
+      </div>
+      {bloco.alongamentoAtivo&&(
+        <input style={{...css.input,marginBottom:8}} placeholder="Observação sobre o alongamento (ex: 5 min, foco em posterior de coxa...)"
+          value={bloco.alongamentoObs||""} onChange={e=>onUpd("alongamentoObs",e.target.value)}/>
+      )}
+      {bloco.mobilidadeAtivo&&(
+        <input style={css.input} placeholder="Observação sobre a mobilidade (ex: mobilidade de ombro e quadril...)"
+          value={bloco.mobilidadeObs||""} onChange={e=>onUpd("mobilidadeObs",e.target.value)}/>
+      )}
     </div>
   );
 }
@@ -7814,6 +7836,31 @@ function AdicionarExercicio({cor,onAddEx,onAddCardio}){
 
 // ── TREINO ALUNO VIEW ─────────────────────────────────────────────────────────
 // Mostra info geral + botões de treino. Ao clicar, abre tela do treino escolhido.
+function AlongamentoBlocoView({bloco}){
+  return(
+    <div style={{...css.card,border:"1px solid #a78bfa40",background:"#1a0a1a"}}>
+      <div style={{fontWeight:700,fontSize:13,color:"#a78bfa",marginBottom:10}}>🧘 Alongamento / Mobilidade</div>
+      <div style={{display:"grid",gap:8}}>
+        {bloco.alongamentoAtivo&&(
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:2}}>Alongamento</div>
+            <div style={{fontSize:13,color:C.text,fontWeight:600}}>{bloco.alongamentoObs||"Sem observação."}</div>
+          </div>
+        )}
+        {bloco.mobilidadeAtivo&&(
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:2}}>Mobilidade</div>
+            <div style={{fontSize:13,color:C.text,fontWeight:600}}>{bloco.mobilidadeObs||"Sem observação."}</div>
+          </div>
+        )}
+        {!bloco.alongamentoAtivo&&!bloco.mobilidadeAtivo&&(
+          <div style={{fontSize:13,color:C.muted}}>Nenhum item marcado.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TreinoAlunoView({aluno, treinoInicial}){
   const [treinoAberto,setTreinoAberto]=useState(treinoInicial || null); // null | "A"|"B"|"C"|"D"
 
@@ -7838,29 +7885,15 @@ function TreinoAlunoView({aluno, treinoInicial}){
           {nome&&<div style={{fontSize:13,color:"#c2cdd8",flex:1}}>{nome}</div>}
           <div style={{fontSize:12,color:cor,fontWeight:600}}>{blocos.length} blocos</div>
         </div>
-        {(aluno["alongamentoAtivo"+treinoAberto]||aluno["mobilidadeAtivo"+treinoAberto])&&(
-          <div style={{...css.card,marginBottom:12,padding:"10px 14px",display:"grid",gap:8}}>
-            {aluno["alongamentoAtivo"+treinoAberto]&&(
-              <div>
-                <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:2}}>Alongamento</div>
-                <div style={{fontSize:13,color:C.text,fontWeight:600}}>{aluno["alongamentoObs"+treinoAberto]||"Sem observação."}</div>
-              </div>
-            )}
-            {aluno["mobilidadeAtivo"+treinoAberto]&&(
-              <div>
-                <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:2}}>Mobilidade</div>
-                <div style={{fontSize:13,color:C.text,fontWeight:600}}>{aluno["mobilidadeObs"+treinoAberto]||"Sem observação."}</div>
-              </div>
-            )}
-          </div>
-        )}
         {blocos.length===0
           ?<div style={{textAlign:"center",color:C.muted,padding:"28px 0",fontSize:13}}>Nenhum exercício prescrito.</div>
           :blocos.map((bloco,bi)=>{
-            const numBloco=blocos.slice(0,bi+1).filter(b=>b.tipo!=="cardio").length;
+            const numBloco=blocos.slice(0,bi+1).filter(b=>b.tipo!=="cardio"&&b.tipo!=="alongamento").length;
             return(
               <div key={bloco.id||bi} style={{marginBottom:10}}>
-                {bloco.tipo==="cardio"
+                {bloco.tipo==="alongamento"
+                  ?<AlongamentoBlocoView bloco={bloco}/>
+                  :bloco.tipo==="cardio"
                   ?<div style={{...css.card,border:"1px solid #34d39940",background:"#0a1a10"}}>
                       <div style={{fontWeight:700,fontSize:13,color:"#34d399",marginBottom:10}}>🏃 Cardio</div>
                       <div style={{background:"#121212",border:"1px solid #2a1a08",borderRadius:8,padding:"10px 12px",borderLeft:"3px solid #34d399"}}>
@@ -8065,29 +8098,15 @@ function TreinoView({aluno}){
               {aluno["treino"+l]&&<div style={{fontSize:13,color:"#c2cdd8",flex:1}}>{aluno["treino"+l]}</div>}
               <div style={{fontSize:12,color:cor,fontWeight:600}}>{blocos.length} blocos</div>
             </div>
-            {(aluno["alongamentoAtivo"+l]||aluno["mobilidadeAtivo"+l])&&(
-              <div style={{...css.card,marginBottom:12,padding:"10px 14px",display:"grid",gap:8}}>
-                {aluno["alongamentoAtivo"+l]&&(
-                  <div>
-                    <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:2}}>Alongamento</div>
-                    <div style={{fontSize:13,color:C.text,fontWeight:600}}>{aluno["alongamentoObs"+l]||"Sem observação."}</div>
-                  </div>
-                )}
-                {aluno["mobilidadeAtivo"+l]&&(
-                  <div>
-                    <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:2}}>Mobilidade</div>
-                    <div style={{fontSize:13,color:C.text,fontWeight:600}}>{aluno["mobilidadeObs"+l]||"Sem observação."}</div>
-                  </div>
-                )}
-              </div>
-            )}
             {blocos.length===0
               ?<div style={{textAlign:"center",color:C.muted,padding:"20px 0",fontSize:13}}>Nenhum exercício prescrito.</div>
               :blocos.map((bloco,bi)=>{
-                const numBloco=blocos.slice(0,bi+1).filter(b=>b.tipo!=="cardio").length;
+                const numBloco=blocos.slice(0,bi+1).filter(b=>b.tipo!=="cardio"&&b.tipo!=="alongamento").length;
                 return(
                   <div key={bloco.id||bi} style={{marginBottom:10}}>
-                    {bloco.tipo==="cardio"
+                    {bloco.tipo==="alongamento"
+                      ? <AlongamentoBlocoView bloco={bloco}/>
+                      : bloco.tipo==="cardio"
                       ? <div style={{...css.card,border:"1px solid #34d39940",background:"#0a1a10"}}>
                           <div style={{fontWeight:700,fontSize:13,color:"#34d399",marginBottom:10}}>🏃 Cardio</div>
                           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
