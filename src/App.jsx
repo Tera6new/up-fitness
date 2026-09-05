@@ -2890,9 +2890,24 @@ function PlanilhaMesView({prof, mesAtivo, linhas, alunos, onUpdateLinhas, onVolt
   // original de cada linha (necessario para editar/remover corretamente,
   // ja que `linhas` no estado continua na ordem de criacao).
   const linhasComIndice = linhasVisiveis.map((l)=>({...l, idxOriginal: linhas.indexOf(l)}));
-  const linhasOrdenadas = [...linhasComIndice].sort((a,b)=>
-    (a.nome||"").localeCompare(b.nome||"", 'pt-BR')
-  );
+
+  // IMPORTANTE: a ORDEM de exibição é recalculada apenas quando o conjunto
+  // de linhas muda (uma linha é adicionada/removida) — não a cada tecla
+  // digitada. Reordenar a cada caractere faz a linha (e o campo de texto
+  // sendo editado) mudar de posição no meio da digitação, o que confunde o
+  // cursor do campo e embaralha as letras digitadas (bug real já visto:
+  // "fernando" virava "efrnando"). Os VALORES exibidos continuam sempre
+  // atualizados em tempo real — só a posição na lista fica congelada.
+  const idsAtuais = linhasComIndice.map(l=>l.id).join(",");
+  const idsOrdenados = useMemo(()=>{
+    return [...linhasComIndice]
+      .sort((a,b)=>(a.nome||"").localeCompare(b.nome||"", 'pt-BR'))
+      .map(l=>l.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsAtuais]);
+  const linhasPorId = {};
+  linhasComIndice.forEach(l=>{ linhasPorId[l.id]=l; });
+  const linhasOrdenadas = idsOrdenados.map(id=>linhasPorId[id]).filter(Boolean);
 
   const atualizarLinha = (idx, campo, valor)=>{
     if(!podeEditar) return;
