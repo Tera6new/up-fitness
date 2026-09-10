@@ -442,7 +442,7 @@ const emptyForm = {
   doencas:"", medicamentos:"", cirurgias:"", lesoes:"", alergias:"",
   fumante:"Não", alcool:"Não", insonia:"Não", temDor:"Não", descDor:"",
   nivelEstresse:"Baixo", praticaEsporte:"", objetivoAnamnese:"",
-  ativo:true, foto:null, dataInativacao:null, tipoPagamento:"comissao",
+  ativo:true, foto:null, dataInativacao:null, tipoPagamento:"fixo",
   // Guarda compartilhada: aulasSemanaPrincipal e quantas aulas/semana o
   // aluno faz com o profissional PRINCIPAL (profissionalId). So e relevante
   // quando existe algum item em vinculosCompartilhados — usado para
@@ -6682,7 +6682,7 @@ export default function App(){
               })}
 
               <button type="button" onClick={()=>{
-                const novaLista=[...(form.vinculosCompartilhados||[]), {profissionalId:"", aulasSemana:1, tipoPagamento:"comissao"}];
+                const novaLista=[...(form.vinculosCompartilhados||[]), {profissionalId:"", aulasSemana:1, tipoPagamento:"fixo"}];
                 u("vinculosCompartilhados", novaLista);
               }} style={{width:"100%",background:"transparent",border:"1px dashed #6366f160",color:"#a78bfa",
                 borderRadius:8,padding:"10px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
