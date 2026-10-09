@@ -1795,12 +1795,119 @@ function AgendaCelula({valor, onChange, alunos, onAbrirAluno, podeEditarObs}){
   );
 }
 
+// Visualização em grade (estilo planilha): mostra TODOS os dias da semana e
+// TODOS os horários de uma vez, lado a lado — apenas leitura, sem edição.
+// Complementa a visão por abas (um dia de cada vez) do AgendaGridView.
+function AgendaGradeSemanalView({prof, agenda, onVoltar}){
+  const horariosPorDia = agenda?.horariosPorDia || {};
+  // Une todos os horarios cadastrados em qualquer dia, para formar as linhas
+  // da grade (cada dia pode ter um subconjunto diferente desses horarios).
+  const todosHorarios = useMemo(()=>{
+    const set = new Set();
+    AGENDA_DIAS.forEach(d=>(horariosPorDia[d]||[]).forEach(h=>set.add(h)));
+    return Array.from(set).sort((a,b)=>(parseInt(a)||0)-(parseInt(b)||0));
+  }, [agenda]);
+
+  const getCelula = (dia,hora,slot) => {
+    const key = `${dia}_${hora}_${slot}`;
+    return agenda?.[key] || null;
+  };
+
+  return(
+    <div style={css.app}><GF/>
+      <header style={css.hdr}>
+        <button style={css.btnB} onClick={onVoltar}>← Voltar</button>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontWeight:700,fontSize:14}}>{prof.nome}</div>
+          <div style={{fontSize:10,color:C.muted}}>Grade da Semana</div>
+        </div>
+        <div style={{width:70}}/>
+      </header>
+      <div style={{padding:"14px 10px",overflowX:"auto"}}>
+        <div style={{display:"flex",gap:14,marginBottom:14,flexWrap:"wrap",paddingLeft:4}}>
+          {[
+            {bg:"#fbbf24",l:"Vago"},
+            {bg:"#ef4444",l:"Bloqueado"},
+            {bg:"#161010",l:"Ocupado"},
+          ].map(item=>(
+            <div key={item.l} style={{display:"flex",alignItems:"center",gap:6}}>
+              <div style={{width:12,height:12,borderRadius:3,background:item.bg,border:"1px solid #2a1a08"}}/>
+              <span style={{fontSize:11,color:C.muted}}>{item.l}</span>
+            </div>
+          ))}
+        </div>
+
+        {todosHorarios.length===0
+          ? <div style={{textAlign:"center",color:C.muted,padding:"30px 0",fontSize:13}}>Nenhum horário cadastrado ainda.</div>
+          : <table style={{borderCollapse:"collapse",minWidth:680,width:"100%"}}>
+              <thead>
+                <tr>
+                  <th style={{position:"sticky",left:0,background:"#161010",color:C.accent,
+                    border:"1px solid #2a1a08",padding:"8px 10px",fontSize:11,fontWeight:800,
+                    textAlign:"left",zIndex:1,minWidth:60}}>
+                    Horário
+                  </th>
+                  {AGENDA_DIAS.map(d=>(
+                    <th key={d} style={{background:"#161010",color:C.accent,border:"1px solid #2a1a08",
+                      padding:"8px 10px",fontSize:11,fontWeight:800,minWidth:110}}>
+                      {AGENDA_DIAS_ABREV[d]}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {todosHorarios.map(hora=>(
+                  <tr key={hora}>
+                    <td style={{position:"sticky",left:0,background:"#0f0f0f",color:C.accent,
+                      border:"1px solid #2a1a08",padding:"8px 10px",fontSize:12,fontWeight:800,zIndex:1}}>
+                      {hora}
+                    </td>
+                    {AGENDA_DIAS.map(dia=>{
+                      const temEsseHorario = (horariosPorDia[dia]||[]).includes(hora);
+                      if(!temEsseHorario) return(
+                        <td key={dia} style={{border:"1px solid #2a1a08",background:"#0a0a0a"}}/>
+                      );
+                      return(
+                        <td key={dia} style={{border:"1px solid #2a1a08",padding:4,verticalAlign:"top"}}>
+                          <div style={{display:"grid",gap:3}}>
+                            {Array.from({length:AGENDA_SLOTS_POR_HORA},(_,slot)=>{
+                              const val = getCelula(dia,hora,slot);
+                              const bloqueado = val?.status==="bloqueado";
+                              const ocupado = !!val?.nome;
+                              const bg = bloqueado ? "#ef444430" : ocupado ? "#1c1c1c" : "#fbbf2420";
+                              const fg = bloqueado ? "#fca5a5" : ocupado ? C.text : "#fbbf24";
+                              const texto = bloqueado ? (val?.obs||"Bloqueado") : ocupado ? val.nome : "Vago";
+                              return(
+                                <div key={slot} style={{background:bg,color:fg,borderRadius:5,
+                                  padding:"4px 6px",fontSize:11,fontWeight:ocupado||bloqueado?700:500,
+                                  whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                                  {texto}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+        }
+      </div>
+    </div>
+  );
+}
+
 function AgendaGridView({prof, agenda, onUpdateCelula, onUpdateHorariosPorDia, onVoltar, alunos, onAbrirAluno, podeEditarObs}){
   const [diaAtivo,setDiaAtivo]=useState(AGENDA_DIAS[0]);
   const [novoHorario,setNovoHorario]=useState("");
   const [diasParaAdicionar,setDiasParaAdicionar]=useState([]); // dias extras selecionados no formulário
   const [confirmarRemover,setConfirmarRemover]=useState(null);
   const [salvandoHorario,setSalvandoHorario]=useState(false);
+  const [verGrade,setVerGrade]=useState(false); // alterna para a visualização em grade (só leitura)
+
+  if(verGrade) return <AgendaGradeSemanalView prof={prof} agenda={agenda} onVoltar={()=>setVerGrade(false)}/>;
 
   // Horários agora são por dia: agenda.horariosPorDia[dia] = ["06H","07H",...]
   // Cada dia começa vazio até o profissional adicionar manualmente.
@@ -1889,9 +1996,16 @@ function AgendaGridView({prof, agenda, onUpdateCelula, onUpdateHorariosPorDia, o
             </div>
           ))}
         </div>
-        <div style={{fontSize:11,color:C.muted,marginBottom:16,lineHeight:1.6}}>
+        <div style={{fontSize:11,color:C.muted,marginBottom:10,lineHeight:1.6}}>
           Toque numa celula para ocupar com o nome do aluno. Segure por meio segundo para Bloquear/Desbloquear ou adicionar uma observacao. Cada dia da semana tem seus proprios horarios, configurados de forma independente.
         </div>
+
+        <button onClick={()=>setVerGrade(true)}
+          style={{background:"transparent",border:"1px solid #34d39950",color:"#34d399",
+            borderRadius:8,padding:"8px 12px",fontSize:12,fontWeight:700,cursor:"pointer",
+            fontFamily:"Inter,sans-serif",marginBottom:16,display:"flex",alignItems:"center",gap:6}}>
+          📊 Ver grade da semana
+        </button>
 
         {/* Abas de dias */}
         <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:16,paddingBottom:4}}>
