@@ -1831,8 +1831,8 @@ function AgendaGradeSemanalView({prof, agenda, onVoltar}){
             {bg:"#161010",l:"Ocupado"},
           ].map(item=>(
             <div key={item.l} style={{display:"flex",alignItems:"center",gap:6}}>
-              <div style={{width:12,height:12,borderRadius:3,background:item.bg,border:"1px solid #2a1a08"}}/>
-              <span style={{fontSize:11,color:C.muted}}>{item.l}</span>
+              <div style={{width:12,height:12,borderRadius:3,background:item.bg,border:"1px solid #4a3a1a"}}/>
+              <span style={{fontSize:13,color:C.muted}}>{item.l}</span>
             </div>
           ))}
         </div>
@@ -1843,13 +1843,13 @@ function AgendaGradeSemanalView({prof, agenda, onVoltar}){
               <thead>
                 <tr>
                   <th style={{position:"sticky",left:0,background:"#161010",color:C.accent,
-                    border:"1px solid #2a1a08",padding:"8px 10px",fontSize:11,fontWeight:800,
+                    border:"2px solid #4a3a1a",padding:"10px 12px",fontSize:14,fontWeight:800,
                     textAlign:"left",zIndex:1,minWidth:60}}>
                     Horário
                   </th>
                   {AGENDA_DIAS.map(d=>(
-                    <th key={d} style={{background:"#161010",color:C.accent,border:"1px solid #2a1a08",
-                      padding:"8px 10px",fontSize:11,fontWeight:800,minWidth:110}}>
+                    <th key={d} style={{background:"#161010",color:C.accent,border:"2px solid #4a3a1a",
+                      padding:"10px 12px",fontSize:14,fontWeight:800,minWidth:110}}>
                       {AGENDA_DIAS_ABREV[d]}
                     </th>
                   ))}
@@ -1859,27 +1859,27 @@ function AgendaGradeSemanalView({prof, agenda, onVoltar}){
                 {todosHorarios.map(hora=>(
                   <tr key={hora}>
                     <td style={{position:"sticky",left:0,background:"#0f0f0f",color:C.accent,
-                      border:"1px solid #2a1a08",padding:"8px 10px",fontSize:12,fontWeight:800,zIndex:1}}>
+                      border:"2px solid #4a3a1a",padding:"10px 12px",fontSize:14,fontWeight:800,zIndex:1}}>
                       {hora}
                     </td>
                     {AGENDA_DIAS.map(dia=>{
                       const temEsseHorario = (horariosPorDia[dia]||[]).includes(hora);
                       if(!temEsseHorario) return(
-                        <td key={dia} style={{border:"1px solid #2a1a08",background:"#0a0a0a"}}/>
+                        <td key={dia} style={{border:"2px solid #4a3a1a",background:"#0a0a0a"}}/>
                       );
                       return(
-                        <td key={dia} style={{border:"1px solid #2a1a08",padding:4,verticalAlign:"top"}}>
+                        <td key={dia} style={{border:"2px solid #4a3a1a",padding:4,verticalAlign:"top"}}>
                           <div style={{display:"grid",gap:3}}>
                             {Array.from({length:AGENDA_SLOTS_POR_HORA},(_,slot)=>{
                               const val = getCelula(dia,hora,slot);
                               const bloqueado = val?.status==="bloqueado";
                               const ocupado = !!val?.nome;
-                              const bg = bloqueado ? "#ef444430" : ocupado ? "#1c1c1c" : "#fbbf2420";
-                              const fg = bloqueado ? "#fca5a5" : ocupado ? C.text : "#fbbf24";
+                              const bg = bloqueado ? "#ef444430" : ocupado ? "#1c1c1c" : "#fbbf24";
+                              const fg = bloqueado ? "#fca5a5" : ocupado ? C.text : "#0a0a0a";
                               const texto = bloqueado ? (val?.obs||"Bloqueado") : ocupado ? val.nome : "Vago";
                               return(
                                 <div key={slot} style={{background:bg,color:fg,borderRadius:5,
-                                  padding:"4px 6px",fontSize:11,fontWeight:ocupado||bloqueado?700:500,
+                                  padding:"5px 7px",fontSize:13,fontWeight:ocupado||bloqueado?700:700,
                                   whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
                                   {texto}
                                 </div>
