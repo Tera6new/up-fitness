@@ -2934,7 +2934,19 @@ function calcularVinculosPagamento(aluno){
 // profissional (via vinculosCompartilhados). Cada profissional envolvido
 // recebe sua propria linha nessa planilha, com o valor PROPORCIONAL as
 // aulas/semana daquele vinculo especifico — nao o valor cheio da mensalidade.
-function mesclarLinhasComCarteira(linhasSalvas, prof, alunos){
+// Um aluno inativado so conta como "inativo" nos meses POSTERIORES ao mes da
+// inativacao. O mes em que foi inativado e todos os meses anteriores
+// continuam normais (editaveis, cobrando como antes) — inativar nunca deve
+// reescrever o passado. Chave de mes no formato "AAAA-MM". Sem data de
+// inativacao registrada (cadastros antigos), mantem o comportamento antigo.
+function alunoInativoNoMes(aluno, chaveMes){
+  if(!aluno || aluno.ativo!==false) return false;
+  const d = aluno.dataInativacao;
+  if(!d || !chaveMes) return true;
+  return chaveMes > String(d).slice(0,7);
+}
+
+function mesclarLinhasComCarteira(linhasSalvas, prof, alunos, chaveMes){
   const base = linhasSalvas || [];
 
   // Para cada aluno, calcula os vinculos efetivos (principal + compartilhados)
@@ -2966,7 +2978,7 @@ function mesclarLinhasComCarteira(linhasSalvas, prof, alunos){
 
   const idsJaNaPlanilha = new Set(linhasAtualizadas.filter(l=>l.alunoId).map(l=>l.alunoId));
   const novasLinhas = alunosRelevantes
-    .filter(r=>r.aluno.ativo!==false) // alunos inativados nao ganham linha nova
+    .filter(r=>!alunoInativoNoMes(r.aluno, chaveMes)) // so nao gera linha nos meses APOS a inativacao
     .filter(r=>!idsJaNaPlanilha.has(r.aluno.id))
     .sort((a,b)=>a.aluno.nome.localeCompare(b.aluno.nome,'pt-BR'))
     .map(r=>({
@@ -2989,7 +3001,7 @@ function PlanilhaMesView({prof, mesAtivo, linhas, alunos, onUpdateLinhas, onVolt
   // inativados (exibidas em cinza, somente leitura, mas sem sumir do mes
   // em que a inativacao ocorreu).
   const statusAtivoPorAluno = {};
-  (alunos||[]).forEach(a=>{ statusAtivoPorAluno[a.id] = a.ativo!==false; });
+  (alunos||[]).forEach(a=>{ statusAtivoPorAluno[a.id] = !alunoInativoNoMes(a, mesAtivo); });
 
   // IDs de alunos que devem aparecer nesta planilha (ja vem filtrado pelo
   // App.jsx conforme a aba Fixo/Comissao, quando o profissional tem vinculo
@@ -3228,7 +3240,7 @@ function PagamentosView({prof, pagamentosDoProf, alunos, onUpdateMes, onVoltar, 
   // mesclarFn permite reaproveitar esta tela fora da musculação (ex: Pilates,
   // que não tem o conceito de guarda compartilhada/vínculo proporcional).
   // Por padrão usa a mesma lógica que sempre foi usada aqui.
-  const linhas = (mesclarFn||mesclarLinhasComCarteira)(linhasSalvas, prof, alunos);
+  const linhas = (mesclarFn||mesclarLinhasComCarteira)(linhasSalvas, prof, alunos, mesAtivo);
 
   // Salva automaticamente no Firestore sempre que a mesclagem gerar uma
   // diferença real em relação ao que ja estava salvo — seja por linhas novas
@@ -3264,7 +3276,7 @@ function PagamentosView({prof, pagamentosDoProf, alunos, onUpdateMes, onVoltar, 
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             {mesesDoAno.map(m=>{
-              const linhasDoMes = m===chaveMesAtual() ? mesclarLinhasComCarteira(pagamentosDoProf?.[m],prof,alunos) : (pagamentosDoProf?.[m]||[]);
+              const linhasDoMes = m===chaveMesAtual() ? mesclarLinhasComCarteira(pagamentosDoProf?.[m],prof,alunos,m) : (pagamentosDoProf?.[m]||[]);
               const totalMes = linhasDoMes.reduce((s,l)=>{
                 const v=parseFloat(String(l.valor||"0").replace(",","."));
                 return s+(isNaN(v)?0:v);
@@ -3304,7 +3316,7 @@ function PagamentosView({prof, pagamentosDoProf, alunos, onUpdateMes, onVoltar, 
             {anosDisponiveis.map(ano=>{
               const mesesDoAno = porAno[ano]||[];
               const totalAno = mesesDoAno.reduce((somaAno,m)=>{
-                const linhasDoMes = m===chaveMesAtual() ? mesclarLinhasComCarteira(pagamentosDoProf?.[m],prof,alunos) : (pagamentosDoProf?.[m]||[]);
+                const linhasDoMes = m===chaveMesAtual() ? mesclarLinhasComCarteira(pagamentosDoProf?.[m],prof,alunos,m) : (pagamentosDoProf?.[m]||[]);
                 const totalMes = linhasDoMes.reduce((s,l)=>{
                   const v=parseFloat(String(l.valor||"0").replace(",","."));
                   return s+(isNaN(v)?0:v);
@@ -8319,7 +8331,7 @@ function TreinoView({aluno}){
 // Versão simplificada de mesclarLinhasComCarteira para o Pilates: aqui não
 // existe o conceito de guarda compartilhada/vínculo proporcional — cada
 // aluno tem um único profissional e um valor de mensalidade direto.
-function mesclarLinhasComCarteiraPilates(linhasSalvas, prof, alunos){
+function mesclarLinhasComCarteiraPilates(linhasSalvas, prof, alunos, chaveMes){
   const base = linhasSalvas || [];
   const meusAlunos = alunos.filter(a=>a.profissionalId===prof.id);
   const porAlunoId = {};
@@ -8334,7 +8346,7 @@ function mesclarLinhasComCarteiraPilates(linhasSalvas, prof, alunos){
 
   const idsJaNaPlanilha = new Set(linhasAtualizadas.filter(l=>l.alunoId).map(l=>l.alunoId));
   const novasLinhas = meusAlunos
-    .filter(a=>a.ativo!==false)
+    .filter(a=>!alunoInativoNoMes(a, chaveMes))
     .filter(a=>!idsJaNaPlanilha.has(a.id))
     .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'))
     .map(a=>({
@@ -8566,7 +8578,7 @@ function PilatesView({onSair}){
             placeholder="Ex: evitar flexão lombar profunda..." style={{...css.input,width:"100%",minHeight:60,resize:"vertical",fontFamily:"Inter,sans-serif"}}/>
         </div>
         <label style={{display:"flex",alignItems:"center",gap:8,marginTop:14,cursor:"pointer"}}>
-          <input type="checkbox" checked={alunoEditando?.ativo!==false} onChange={e=>setAlunoEditando({...alunoEditando,ativo:e.target.checked})}/>
+          <input type="checkbox" checked={alunoEditando?.ativo!==false} onChange={e=>setAlunoEditando({...alunoEditando,ativo:e.target.checked,dataInativacao:e.target.checked?null:(alunoEditando?.dataInativacao||new Date().toISOString().slice(0,10))})}/>
           <span style={{fontSize:13}}>Aluno ativo</span>
         </label>
         <button onClick={async()=>{
