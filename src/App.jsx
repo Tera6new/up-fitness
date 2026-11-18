@@ -2934,16 +2934,15 @@ function calcularVinculosPagamento(aluno){
 // profissional (via vinculosCompartilhados). Cada profissional envolvido
 // recebe sua propria linha nessa planilha, com o valor PROPORCIONAL as
 // aulas/semana daquele vinculo especifico — nao o valor cheio da mensalidade.
-// Um aluno inativado so conta como "inativo" nos meses POSTERIORES ao mes da
-// inativacao. O mes em que foi inativado e todos os meses anteriores
-// continuam normais (editaveis, cobrando como antes) — inativar nunca deve
-// reescrever o passado. Chave de mes no formato "AAAA-MM". Sem data de
+// Um aluno inativado conta como "inativo" a partir do MES da inativacao
+// (inclusive) em diante. Os meses anteriores continuam normais (editaveis,
+// cobrando como antes) — inativar nunca deve reescrever o passado. Chave de mes no formato "AAAA-MM". Sem data de
 // inativacao registrada (cadastros antigos), mantem o comportamento antigo.
 function alunoInativoNoMes(aluno, chaveMes){
   if(!aluno || aluno.ativo!==false) return false;
   const d = aluno.dataInativacao;
   if(!d || !chaveMes) return true;
-  return chaveMes > String(d).slice(0,7);
+  return chaveMes >= String(d).slice(0,7);
 }
 
 function mesclarLinhasComCarteira(linhasSalvas, prof, alunos, chaveMes){
@@ -2978,7 +2977,7 @@ function mesclarLinhasComCarteira(linhasSalvas, prof, alunos, chaveMes){
 
   const idsJaNaPlanilha = new Set(linhasAtualizadas.filter(l=>l.alunoId).map(l=>l.alunoId));
   const novasLinhas = alunosRelevantes
-    .filter(r=>!alunoInativoNoMes(r.aluno, chaveMes)) // so nao gera linha nos meses APOS a inativacao
+    .filter(r=>!alunoInativoNoMes(r.aluno, chaveMes)) // nao gera linha a partir do mes da inativacao
     .filter(r=>!idsJaNaPlanilha.has(r.aluno.id))
     .sort((a,b)=>a.aluno.nome.localeCompare(b.aluno.nome,'pt-BR'))
     .map(r=>({
